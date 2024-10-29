@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WowAHaha", "WowAHaha\WowAHaha.csproj", "{985695E9-1C14-451E-B014-FCB13DD4D2FE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WowAHaha.Tests", "WowAHaha.Tests\WowAHaha.Tests.csproj", "{33BC15FD-5FC0-4C61-8C4E-FA890398B7EB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WowItemVersion", "WowItemVersion\WowItemVersion.csproj", "{AA720620-A8CA-41E6-A06E-374FEAF883B7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{985695E9-1C14-451E-B014-FCB13DD4D2FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{985695E9-1C14-451E-B014-FCB13DD4D2FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{985695E9-1C14-451E-B014-FCB13DD4D2FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{985695E9-1C14-451E-B014-FCB13DD4D2FE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{33BC15FD-5FC0-4C61-8C4E-FA890398B7EB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{33BC15FD-5FC0-4C61-8C4E-FA890398B7EB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{33BC15FD-5FC0-4C61-8C4E-FA890398B7EB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{33BC15FD-5FC0-4C61-8C4E-FA890398B7EB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

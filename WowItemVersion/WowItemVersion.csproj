@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Maxisoft.Utils" Version="0.1.0-alpha" />
+      <PackageReference Include="MoonSharp" Version="2.0.0" />
+<PackageReference Include="System.Text.Json" Version="8.0.5" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Remove="ItemVersionAddon\**" />
+      <None Remove="ItemVersionAddon\**" />
+        <None Remove="ItemVersionAddon\ItemVersion\Data.lua" />
+        <EmbeddedResource Include="ItemVersionAddon\ItemVersion\Data.lua">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </EmbeddedResource>
+        <EmbeddedResource Include="ItemVersionAddon\ItemVersion\Community.lua">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </EmbeddedResource>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Remove="ItemVersionAddon\**" />
+    </ItemGroup>
+
+</Project>
