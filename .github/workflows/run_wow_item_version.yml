@@ -1,4 +1,4 @@
-name: Build and Test project using dotnet
+name: Build and Run WowItemVersion project
 
 on: [push, pull_request]
 env:
