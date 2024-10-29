@@ -43,4 +43,16 @@
       </EmbeddedResource>
     </ItemGroup>
 
+    <ItemGroup>
+      <Content Include="..\.github\dependabot.yml">
+        <Link>.github\dependabot.yml</Link>
+      </Content>
+      <Content Include="..\.github\workflows\build_and_test.yml">
+        <Link>.github\workflows\build_and_test.yml</Link>
+      </Content>
+      <Content Include="..\.github\workflows\keep_alive.yml">
+        <Link>.github\workflows\keep_alive.yml</Link>
+      </Content>
+    </ItemGroup>
+
 </Project>
