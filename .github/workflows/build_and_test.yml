@@ -1,0 +1,37 @@
+name: Build and Test project using dotnet
+
+on: [push, pull_request]
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  build:
+    
+    strategy:
+      matrix:
+        dotnet-version: [ '8.0.x' ]
+        os: [ ubuntu-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4.1.7
+        with:
+          submodules: 'recursive'
+      - name: Setup .NET Core SDK ${{ matrix.dotnet-version }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
+      - name: Install dependencies
+        run: dotnet restore
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+      - name: Test
+        run: dotnet test --no-restore --verbosity normal
+
+      - name: Create artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Cryptodd_${{ matrix.os }}_${{ matrix.dotnet-version }}
+          path: WowAHaha/bin/Release/*
