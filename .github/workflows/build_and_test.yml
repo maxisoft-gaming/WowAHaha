@@ -33,5 +33,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ github.repository }}_${{ matrix.os }}_${{ matrix.dotnet-version }}
+          name: WowAHaha_${{ matrix.os }}_${{ matrix.dotnet-version }}
           path: WowAHaha/bin/Release/*
