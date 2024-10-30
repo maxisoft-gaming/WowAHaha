@@ -61,7 +61,6 @@ jobs:
 
       - name: Build
         run: |
-          mkdir -p wd
           dotnet build --configuration ${{ env.dotnet-configuration }} --no-restore
 
       - name: Cache wd directory
@@ -106,27 +105,36 @@ jobs:
         shell: python
         run: |
           import os
-          import pathlib
+          import sys
           import hashlib
-
-          summary_file = pathlib.Path(os.getenv('GITHUB_STEP_SUMMARY'))
-          with open(summary_file, 'a') as f:
-            f.write('## :file_folder: **Newly** Generated CSV files\n')
-            f.write('| Name               | SHA256 Hash                  | File Size                    |\n')
-            f.write('|-------------------------|------------------------------|------------------------------|\n')
-            for file in sorted(set(pathlib.Path('wd').rglob('*.csv'))):
-              hash = hashlib.sha256()
-              with open(file, 'rb') as f:
-                hash.update(f.read())
-              size = pathlib.Path(file).stat().st_size
+          from pathlib import Path
+          
+          def human_readable_size(size):
               size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
               size_index = 0
               while size >= 1024 and size_index < len(size_suffixes):
-                size /= 1024
-                size_index += 1
-              size = f'{size:.2f} {size_suffixes[size_index]}'
-              f.write(f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |\n")
-            f.write('|-------------------------|------------------------------|------------------------------|\n')
+                  size /= 1024
+                  size_index += 1
+              return f'{size:.2f} {size_suffixes[size_index]}'
+          
+          wd = Path('wd')
+          if not wd.exists():
+              print('No wd directory', file=sys.stderr)
+              sys.exit(1)
+
+          files: list[pathlib.Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
+          if len(files) == 0:
+              print('No CSV files previously generated')
+              sys.exit(0)
+          
+          with open(os.getenv('GITHUB_STEP_SUMMARY'), 'a') as step_summary:
+              step_summary.write('## :file_folder: **Previously** Generated CSV files\n')
+              step_summary.write('| Name               | blake2s Hash                  | File Size                    |\n')
+              step_summary.write('|-------------------------|------------------------------|------------------------------|\n')
+              for file in files:
+                  hash = hashlib.blake2s(file.read_bytes())
+                  size = file.stat().st_size
+                  step_summary.write(f"| {file.relative_to(wd)} | {hash.hexdigest()} | {human_readable_size(size)} |\n")
 
       - name: Run WowAHaha
         if: ${{ (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
@@ -144,41 +152,35 @@ jobs:
         run: |
           import os
           import sys
-          import pathlib
           import hashlib
+          from pathlib import Path
           
-          files = sorted(set(pathlib.Path('wd').rglob('*.csv'))) + sorted(set(pathlib.Path('wd').rglob('*.json')))
+          def human_readable_size(size):
+              size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+              size_index = 0
+              while size >= 1024 and size_index < len(size_suffixes):
+                  size /= 1024
+                  size_index += 1
+              return f'{size:.2f} {size_suffixes[size_index]}'
+          
+          wd = Path('wd')
+          if not wd.exists():
+              print('No wd directory', file=sys.stderr)
+              sys.exit(1)
+
+          files: list[pathlib.Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
           if len(files) == 0:
-            print('No CSV files generated', file=sys.stderr)
-            sys.exit(1)
+              print('No CSV files generated', file=sys.stderr)
+              sys.exit(1)
           
-          f = open(os.getenv('GITHUB_STEP_SUMMARY'), 'a')
-          print('## :file_folder: **Newly** Generated CSV files', file=f)
-          print('| Name               | SHA256 Hash                  | File Size                    |', file=f)
-          print('|-------------------------|------------------------------|------------------------------|', file=f)
-          for file in files:
-            hash = hashlib.blake2s()
-            with open(file, 'rb') as f:
-              hash.update(f.read())
-            size = pathlib.Path(file).stat().st_size
-            size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
-            size_index = 0
-            while size >= 1024 and size_index < len(size_suffixes):
-              size /= 1024
-              size_index += 1
-            size = f'{size:.2f} {size_suffixes[size_index]}'
-            s = f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |"
-            try:
-              print(s, file=f)
-            except Exception as e:
-              f.close()
-              import time
-              time.sleep(0.1)
-              f = open(os.getenv('GITHUB_STEP_SUMMARY'), 'a')
-              print(s, file=f)
-          print('|-------------------------|------------------------------|------------------------------|', file=f)
-          
-          f.close()
+          with open(os.getenv('GITHUB_STEP_SUMMARY'), 'a') as step_summary:
+              step_summary.write('## :file_folder: **Newly** Generated CSV files\n')
+              step_summary.write('| Name               | blake2s Hash                  | File Size                    |\n')
+              step_summary.write('|-------------------------|------------------------------|------------------------------|\n')
+              for file in files:
+                  hash = hashlib.blake2s(file.read_bytes())
+                  size = file.stat().st_size
+                  step_summary.write(f"| {file.relative_to(wd)} | {hash.hexdigest()} | {human_readable_size(size)} |\n")
 
       - name: Attest Build Provenance of csv files
         uses: actions/attest-build-provenance@v1
