@@ -94,17 +94,17 @@ jobs:
               env_file.write(f'RELEASE_YEAR={now.year}\n')
               env_file.write(f'RELEASE_MONTH={now.month}\n')
           
-              first_run_from_input = r"""${{ github.event.inputs.first_run }}""".strip()
+              first_run_from_input = r"""${{ inputs.first_run }}""".strip()
               if first_run_from_input:
                 env_file.write(f'FIRST_RUN={first_run_from_input in true_values}\n')
                 overwritten += 1
 
-              force_release_from_input = r"""${{ github.event.inputs.force_release }}""".strip()
+              force_release_from_input = r"""${{ inputs.force_release }}""".strip()
               if force_release_from_input:
                 env_file.write(f'FORCE_RELEASE={force_release_from_input in true_values}\n')
                 overwritten += 1
 
-              fast_release_from_input = r"""${{ github.event.inputs.fast_release }}""".strip()
+              fast_release_from_input = r"""${{ inputs.fast_release }}""".strip()
               if fast_release_from_input:
                 env_file.write(f'FAST_RELEASE={fast_release_from_input in true_values}\n')
                 overwritten += 1
