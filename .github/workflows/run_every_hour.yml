@@ -28,7 +28,7 @@ env:
   LATEST_CSV_TAG: latest_csv
   RELEASE_CSV_PREFIX: wow_ah_csv_
   FORCE_RELEASE: true # set to true to force a release (useful for testing)
-  SKIP_PREVIOUS_RELEASE_DOWNLOAD: true
+  SKIP_PREVIOUS_RELEASE_DOWNLOAD: false
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
 
@@ -239,7 +239,9 @@ jobs:
         run: |
           file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H_%M_%S').7z"
           sevenzip_flags='-mx=9'
-          7z a $sevenzip_flags "$file_name" wd/*
+          pushd wd
+          7z a $sevenzip_flags "../$file_name" *
+          popd
           size=$(wc -c < "$file_name")
           echo "sevenzip_file_name=$file_name" >> $GITHUB_OUTPUT
           echo "sevenzip_file_size=$size" >> $GITHUB_OUTPUT
