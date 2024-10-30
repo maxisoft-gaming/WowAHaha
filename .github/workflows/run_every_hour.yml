@@ -262,7 +262,6 @@ jobs:
             echo "| :package: 7z Flags  | ${{ env.SEVENZIP_FLAGS }}              |" >> $GITHUB_STEP_SUMMARY
             echo "| :package: 7z Version | $(7z i | head -n 2 | tail -n 1)           |" >> $GITHUB_STEP_SUMMARY
             echo "| :package: p7zip Version | $(7z i | head -n 3 | tail -n 1)           |" >> $GITHUB_STEP_SUMMARY
-            echo "| :lock: Compression  | Maximum                      |" >> $GITHUB_STEP_SUMMARY
             echo "| :clock1: Creation Date | $(date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
           }
           if [ $size -lt 50000 ]; then
@@ -304,7 +303,7 @@ jobs:
 
 
       - name: Attest Build Provenance of csv files
-        if: env.FAST_RELEASE != 'true' && env.SKIP_BUILD_ATTESTATION != 'true' && env.ARCHIVE_NO_CHANGE != 'true'
+        if: env.FAST_RELEASE != 'true' && env.SKIP_BUILD_ATTESTATION != 'true' && env.ARCHIVE_NO_CHANGE != 'true' && github.event_name != 'schedule' # disable on schedule to speed up
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: 'wd/*'
