@@ -48,14 +48,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.dotnet-version }}
-
-      - name: Cache NuGet dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-run-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
       - name: Install dependencies
         run: dotnet restore
 
@@ -154,29 +146,39 @@ jobs:
           import sys
           import pathlib
           import hashlib
-
-          summary_file = pathlib.Path(os.getenv('GITHUB_STEP_SUMMARY'))
-          with open(summary_file, 'a') as f:
-            f.write('## :file_folder: **Newly** Generated CSV files\n')
-            f.write('| Name               | SHA256 Hash                  | File Size                    |\n')
-            f.write('|-------------------------|------------------------------|------------------------------|\n')
-            for file in sorted(set(pathlib.Path('wd').rglob('*.csv'))):
-              hash = hashlib.sha256()
-              with open(file, 'rb') as f:
-                hash.update(f.read())
-              size = pathlib.Path(file).stat().st_size
-              size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
-              size_index = 0
-              while size >= 1024 and size_index < len(size_suffixes):
-                size /= 1024
-                size_index += 1
-              size = f'{size:.2f} {size_suffixes[size_index]}'
-              print(f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |\n")
-              try:
-                f.write(f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |\n")
-              except Exception:
-                print(f"Error writing to {summary_file}: {sys.exc_info()[1]}", file=sys.stderr)
-            f.write('|-------------------------|------------------------------|------------------------------|\n')
+          
+          files = sorted(set(pathlib.Path('wd').rglob('*.csv'))) + sorted(set(pathlib.Path('wd').rglob('*.json')))
+          if len(files) == 0:
+            print('No CSV files generated', file=sys.stderr)
+            sys.exit(1)
+          
+          f = open(os.getenv('GITHUB_STEP_SUMMARY'), 'a')
+          print('## :file_folder: **Newly** Generated CSV files', file=f)
+          print('| Name               | SHA256 Hash                  | File Size                    |', file=f)
+          print('|-------------------------|------------------------------|------------------------------|', file=f)
+          for file in files:
+            hash = hashlib.blake2s()
+            with open(file, 'rb') as f:
+              hash.update(f.read())
+            size = pathlib.Path(file).stat().st_size
+            size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+            size_index = 0
+            while size >= 1024 and size_index < len(size_suffixes):
+              size /= 1024
+              size_index += 1
+            size = f'{size:.2f} {size_suffixes[size_index]}'
+            s = f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |"
+            try:
+              print(s, file=f)
+            except Exception as e:
+              f.close()
+              import time
+              time.sleep(0.1)
+              f = open(os.getenv('GITHUB_STEP_SUMMARY'), 'a')
+              print(s, file=f)
+          print('|-------------------------|------------------------------|------------------------------|', file=f)
+          
+          f.close()
 
       - name: Attest Build Provenance of csv files
         uses: actions/attest-build-provenance@v1
