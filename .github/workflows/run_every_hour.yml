@@ -199,6 +199,14 @@ jobs:
           
       - name: Create a zip file of csv files
         run: 7z a "wow_ah_csv_$(date +'%Y-%m-%d_%H-%M-%S').zip" wd/*
+        
+      - uses: rickstaa/action-create-tag@v1
+        if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        id: "tag_create"
+        with:
+          tag: "latest_csv"
+          tag_exists_error: false
+          force_push_tag: true
 
       - name: Create a new release
         uses: ncipollo/release-action@v1
@@ -215,3 +223,4 @@ jobs:
           make_latest: true
           replacesArtifacts: true
           owner: ${{ github.actor }}
+          tag: latest_csv
