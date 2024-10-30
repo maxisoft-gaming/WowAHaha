@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       first_run:
-        description: 'Run the WowAHaha project for the first time'
+        description: 'Run release for the first time (may be needed if current day is NOT the first day of the month)'
         default: false
         required: false
         type: boolean
@@ -25,7 +25,7 @@ on:
         type: boolean
         
       fast_release:
-        description: 'Skip cache, hash and attest-build-provenance'
+        description: 'Skip cache, hash and attest-build-provenance (fast run)'
         default: false
         required: false
         type: boolean
@@ -83,6 +83,7 @@ jobs:
 
           year_and_month = now.strftime('%Y_%m')
           release_csv_suffix = year_and_month + (os.getenv('RELEASE_CSV_SUFFIX') or '.7z')
+          overwritten = 0
 
           with open(os.getenv('GITHUB_STEP_SUMMARY'), 'a') as step_summary:
             step_summary.write(f'# Run the WowAHaha project for *{year_and_month}* \n')
@@ -111,7 +112,7 @@ jobs:
               allowed_actors = r"""${{ secrets.ALLOWED_ACTOR || vars.ALLOWED_ACTOR || env.ALLOWED_ACTOR || github.repository_owner }}""".strip()
 
               github_actor = r"""${{ github.actor }}""".strip()
-              overwritten = 0
+              
               if allowed_actors:
                 if ',' in allowed_actors:
                   allowed_actors = [s.strip() for s in allowed_actors.split(',')]
@@ -132,8 +133,7 @@ jobs:
                   env_file.write(f'{bool_env_var}=false\n')
   
               step_summary.write('## :gear: Environment variables \n')
-
-              
+          
               if os.getenv('FAST_RELEASE', '') == 'true':
                 env_file.write('USE_WORKING_DIR_CACHE=false\n')
                 env_file.write('SKIP_BUILD_ATTEST=true\n')
