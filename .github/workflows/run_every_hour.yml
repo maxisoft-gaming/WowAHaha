@@ -67,9 +67,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: wd
-          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-${{ hashFiles('**/*.csproj') }}
+          key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
-            ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-
+            ${{ env.PROGRAM_NAME }}-csv-wd-
 
       - name: Checks and Steps Summary
         run: |
