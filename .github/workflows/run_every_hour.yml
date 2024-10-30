@@ -35,6 +35,11 @@ jobs:
     name: Run the WowAHaha project
     timeout-minutes: 10
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+      contents: write
     steps:
       - uses: actions/checkout@v4.2.2
         with:
@@ -75,12 +80,33 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-
             
-      - name: Check if secrets are set
+      - name: Checks and Steps Summary
         run: |
-          if [ -z "${{ secrets.BattleNetClientId }}" ] || [ -z "${{ secrets.BattleNetClientSecret }}" ]; then
-            echo "Error: Required secrets are not set. Please set BattleNetClientId and BattleNetClientSecret in your repository secrets."
-            exit 1
-          fi
+          {
+            echo "## ⚠️ Secret Checks"
+            if [ -z "${{ secrets.BattleNetClientId }}" ] || [ -z "${{ secrets.BattleNetClientSecret }}" ]; then
+              echo "Required secrets are not set. Please set BattleNetClientId and BattleNetClientSecret in your repository secrets." 1>&2
+              echo ":x: **Error**: Required secrets are not set. Please set *BattleNetClientId* and *BattleNetClientSecret* in your repository secrets." >> $GITHUB_STEP_SUMMARY
+              exit 1
+            else
+              echo ":white_check_mark: Required secrets are set." >> $GITHUB_STEP_SUMMARY
+            fi
+
+            if [ -z "${{ secrets.BattleNetCredentialEncryptionKey }}" ]; then
+              echo ":warning: **Note**: Not using encryption key." >> $GITHUB_STEP_SUMMARY
+            else
+              echo ":lock: Using custom encryption key." >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "## 📊 System Information" >> $GITHUB_STEP_SUMMARY
+            echo "| Property               | Value                  |" >> $GITHUB_STEP_SUMMARY
+            echo "|------------------------|------------------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :computer: Processors  | $(nproc)               |" >> $GITHUB_STEP_SUMMARY
+            echo "| :gear: Architecture    | $(uname -m)            |" >> $GITHUB_STEP_SUMMARY
+            echo "| :rocket: .NET Version  | $(dotnet --version)    |" >> $GITHUB_STEP_SUMMARY
+            echo "| :bust_in_silhouette: GitHub Actor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| :tada: GitHub Event    | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          }
           
       - name: Run WowAHaha
         if: ${{ (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
