@@ -27,9 +27,9 @@ env:
   PROGRAM_NAME: WowAHaha
   LATEST_CSV_TAG: latest_csv
   RELEASE_CSV_PREFIX: wow_ah_csv_
-  FORCE_RELEASE: true
+  FORCE_RELEASE: false # set to true to force a release (useful for testing)
   DISABLE_DOWNLOAD_PREVIOUS_RELEASE: false
-  FAST_RELEASE: false
+  FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
@@ -232,7 +232,7 @@ jobs:
       - name: Create a zip file of csv files
         id: csv_zip
         run: |
-          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y-%m-%d_%H-%M-%S').zip"
+          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H-%M-%S').zip"
           7z a "$file_name" wd/*
           size=$(wc -c < "$file_name")
           echo "zip_file_name=$file_name" >> $GITHUB_OUTPUT
