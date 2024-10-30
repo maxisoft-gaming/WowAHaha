@@ -32,7 +32,7 @@ env:
   SKIP_PREVIOUS_RELEASE_DOWNLOAD: false
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
-  USE_WORKING_DIR_CACHE: true
+  USE_WORKING_DIR_CACHE: false
   SEVENZIP_FLAGS: '-mx=6'
   FIRST_RUN: false # set to true in case no previous files was build
 
