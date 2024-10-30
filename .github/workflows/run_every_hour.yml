@@ -27,6 +27,7 @@ env:
   PROGRAM_NAME: WowAHaha
   LATEST_CSV_TAG: latest_csv
   RELEASE_CSV_PREFIX: wow_ah_csv_
+  FORCE_RELEASE: true
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
@@ -238,7 +239,7 @@ jobs:
           fi
         
       - uses: rickstaa/action-create-tag@v1
-        if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (env.FORCE_RELEASE == 'true' || (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'))
         id: "tag_create"
         with:
           tag: ${{ env.LATEST_CSV_TAG }}
@@ -247,7 +248,7 @@ jobs:
 
       - name: Create a new release
         uses: ncipollo/release-action@v1
-        if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (env.FORCE_RELEASE == 'true' || (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'))
         with:
           allowUpdates: true
           artifactErrorsFailBuild: true
