@@ -48,7 +48,7 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.dotnet-version }}
-          
+
       - name: Cache NuGet dependencies
         uses: actions/cache@v3
         with:
@@ -58,7 +58,7 @@ jobs:
             ${{ runner.os }}-nuget-
       - name: Install dependencies
         run: dotnet restore
-        
+
       - name: Cache build output
         uses: actions/cache@v3
         with:
@@ -66,12 +66,12 @@ jobs:
           key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
             ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-
-            
+
       - name: Build
         run: |
           mkdir -p wd
           dotnet build --configuration ${{ env.dotnet-configuration }} --no-restore
-          
+
       - name: Cache wd directory
         uses: actions/cache@v3
         with:
@@ -79,7 +79,7 @@ jobs:
           key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
             ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-
-            
+
       - name: Checks and Steps Summary
         run: |
           {
@@ -98,7 +98,7 @@ jobs:
               echo ":lock: Using custom encryption key." >> $GITHUB_STEP_SUMMARY
             fi
 
-            echo "## 📊 System Information" >> $GITHUB_STEP_SUMMARY
+            echo "## :computer: System Information" >> $GITHUB_STEP_SUMMARY
             echo "| Property               | Value                  |" >> $GITHUB_STEP_SUMMARY
             echo "|------------------------|------------------------|" >> $GITHUB_STEP_SUMMARY
             echo "| :computer: Processors  | $(nproc)               |" >> $GITHUB_STEP_SUMMARY
@@ -106,8 +106,36 @@ jobs:
             echo "| :rocket: .NET Version  | $(dotnet --version)    |" >> $GITHUB_STEP_SUMMARY
             echo "| :bust_in_silhouette: GitHub Actor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
             echo "| :tada: GitHub Event    | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: OS           | $(uname -s)            |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: OS Version   | $(uname -v)            |" >> $GITHUB_STEP_SUMMARY
           }
-          
+
+      - name: Summary of the previously generated CSV files
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import hashlib
+
+          summary_file = pathlib.Path(os.getenv('GITHUB_STEP_SUMMARY'))
+          with open(summary_file, 'a') as f:
+            f.write('## :file_folder: **Newly** Generated CSV files\n')
+            f.write('| Name               | SHA256 Hash                  | File Size                    |\n')
+            f.write('|-------------------------|------------------------------|------------------------------|\n')
+            for file in sorted(set(pathlib.Path('wd').rglob('*.csv'))):
+              hash = hashlib.sha256()
+              with open(file, 'rb') as f:
+                hash.update(f.read())
+              size = pathlib.Path(file).stat().st_size
+              size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+              size_index = 0
+              while size >= 1024 and size_index < len(size_suffixes):
+                size /= 1024
+                size_index += 1
+              size = f'{size:.2f} {size_suffixes[size_index]}'
+              f.write(f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |\n")
+            f.write('|-------------------------|------------------------------|------------------------------|\n')
+
       - name: Run WowAHaha
         if: ${{ (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
         run: |
@@ -118,10 +146,42 @@ jobs:
           $env:AHaha_BattleNetWebApi:CredentialEncryptionKey='${{ secrets.BattleNetCredentialEncryptionKey }}';
           dotnet run --no-build --configuration Release --project "../${{ env.PROGRAM_NAME }}"
         shell: pwsh
-        
-      - uses: actions/attest-build-provenance@v1
+
+      - name: Summary of the generated CSV files
+        shell: python
+        run: |
+          import os
+          import sys
+          import pathlib
+          import hashlib
+
+          summary_file = pathlib.Path(os.getenv('GITHUB_STEP_SUMMARY'))
+          with open(summary_file, 'a') as f:
+            f.write('## :file_folder: **Newly** Generated CSV files\n')
+            f.write('| Name               | SHA256 Hash                  | File Size                    |\n')
+            f.write('|-------------------------|------------------------------|------------------------------|\n')
+            for file in sorted(set(pathlib.Path('wd').rglob('*.csv'))):
+              hash = hashlib.sha256()
+              with open(file, 'rb') as f:
+                hash.update(f.read())
+              size = pathlib.Path(file).stat().st_size
+              size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+              size_index = 0
+              while size >= 1024 and size_index < len(size_suffixes):
+                size /= 1024
+                size_index += 1
+              size = f'{size:.2f} {size_suffixes[size_index]}'
+              print(f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |\n")
+              try:
+                f.write(f"| {file.relative_to(file.parent.parent)} | {hash.hexdigest()} | {size} |\n")
+              except Exception:
+                print(f"Error writing to {summary_file}: {sys.exc_info()[1]}", file=sys.stderr)
+            f.write('|-------------------------|------------------------------|------------------------------|\n')
+
+      - name: Attest Build Provenance of csv files
+        uses: actions/attest-build-provenance@v1
         with:
-            subject-path: 'wd/*'
+          subject-path: 'wd/*'
 
       - name: Create artifact
         uses: actions/upload-artifact@v4
