@@ -232,7 +232,7 @@ jobs:
       - name: Create a zip file of csv files
         id: csv_zip
         run: |
-          file_name="${{ env.RELEASE_CSV_PREFIX }}}$(date +'%Y-%m-%d_%H-%M-%S').zip"
+          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y-%m-%d_%H-%M-%S').zip"
           7z a "$file_name" wd/*
           size=$(wc -c < "$file_name")
           echo "zip_file_name=$file_name" >> $GITHUB_OUTPUT
@@ -266,5 +266,4 @@ jobs:
           makeLatest: true
           replacesArtifacts: true
           removeArtifacts: true
-          #owner: ${{ github.actor }}
           tag: ${{ env.LATEST_CSV_TAG }}
