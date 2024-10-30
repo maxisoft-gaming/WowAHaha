@@ -27,7 +27,7 @@ env:
   PROGRAM_NAME: WowAHaha
   LATEST_CSV_TAG: latest_csv
   RELEASE_CSV_PREFIX: wow_ah_csv_
-  FORCE_RELEASE: true # set to true to force a release (useful for testing)
+  FORCE_RELEASE: false # set to true to force a release (useful for testing)
   SKIP_PREVIOUS_RELEASE_DOWNLOAD: false
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
