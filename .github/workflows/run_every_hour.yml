@@ -33,7 +33,7 @@ concurrency:
 jobs:
   run-every-hour:
     name: Run the WowAHaha project
-    timeout-minutes: 10
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -139,6 +139,7 @@ jobs:
 
       - name: Run WowAHaha
         if: ${{ (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+        timeout-minutes: 10
         run: |
           mkdir -p wd
           cd wd
