@@ -28,6 +28,8 @@ env:
   LATEST_CSV_TAG: latest_csv
   RELEASE_CSV_PREFIX: wow_ah_csv_
   FORCE_RELEASE: true
+  DISABLE_DOWNLOAD_PREVIOUS_RELEASE: false
+  FAST_RELEASE: false
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
@@ -58,9 +60,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.PROGRAM_NAME }}/bin/${{ env.dotnet-configuration }}
-          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-${{ github.sha }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ env.PROGRAM_NAME }}-${{ github.sha }}-build-output-
+          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
 
       - name: Build
         run: |
@@ -69,6 +69,7 @@ jobs:
       - name: Cache wd directory
         uses: actions/cache@v3
         id: wd_cache
+        if: env.FAST_RELEASE != 'true'
         with:
           path: wd
           enableCrossOsArchive: true
@@ -79,7 +80,7 @@ jobs:
       - name: Download latest files from Release
         uses: robinraju/release-downloader@v1
         id: download_release
-        if: (steps.wd_cache.outputs.cache-hit != 'true')
+        if: env.DISABLE_DOWNLOAD_PREVIOUS_RELEASE == 'true' || steps.wd_cache.outputs.cache-hit != 'true'
         with:
           tag: ${{ env.LATEST_CSV_TAG }}
           fileName: '${{ env.RELEASE_CSV_PREFIX }}*.zip'
@@ -137,6 +138,8 @@ jobs:
           import hashlib
           from pathlib import Path
           
+          fast_release = os.getenv('FAST_RELEASE', 'false').lower() == 'true'
+          
           def human_readable_size(size):
               size_suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
               size_index = 0
@@ -160,9 +163,9 @@ jobs:
               step_summary.write('| Name               | blake2s Hash                  | File Size                    |\n')
               step_summary.write('|-------------------------|------------------------------|------------------------------|\n')
               for file in files:
-                  hash = hashlib.blake2s(file.read_bytes())
+                  hash = hashlib.blake2s(file.read_bytes()).hexdigest() if not fast_release else 'N/A'
                   size = file.stat().st_size
-                  step_summary.write(f"| {file.relative_to(wd)} | {hash.hexdigest()} | {human_readable_size(size)} |\n")
+                  step_summary.write(f"| {file.relative_to(wd)} | {hash} | {human_readable_size(size)} |\n")
 
       - name: Run WowAHaha
         if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -213,6 +216,7 @@ jobs:
                   step_summary.write(f"| {file.relative_to(wd)} | {hash.hexdigest()} | {human_readable_size(size)} |\n")
 
       - name: Attest Build Provenance of csv files
+        if: env.FAST_RELEASE != 'true'
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: 'wd/*'
@@ -256,9 +260,11 @@ jobs:
           name: Latest csv files
           body: |
             This is an automated release of the latest csv files.
+            From ${{ github.actor }} (${{ github.event_name }})
           draft: false
           prerelease: false
-          make_latest: true
+          makeLatest: true
           replacesArtifacts: true
+          removeArtifacts: true
           #owner: ${{ github.actor }}
           tag: ${{ env.LATEST_CSV_TAG }}
