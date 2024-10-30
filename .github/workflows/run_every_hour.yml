@@ -55,9 +55,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.PROGRAM_NAME }}/bin/${{ env.dotnet-configuration }}
-          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
+          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-${{ github.sha }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
-            ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-
+            ${{ runner.os }}-${{ env.PROGRAM_NAME }}-${{ github.sha }}-build-output-
 
       - name: Build
         run: |
@@ -68,7 +68,7 @@ jobs:
         with:
           path: wd
           enableCrossOsArchive: true
-          key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ hashFiles('**/*.csproj') }}
+          key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
             ${{ env.PROGRAM_NAME }}-csv-wd-
 
