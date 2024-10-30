@@ -27,8 +27,8 @@ env:
   PROGRAM_NAME: WowAHaha
   LATEST_CSV_TAG: latest_csv
   RELEASE_CSV_PREFIX: wow_ah_csv_
-  FORCE_RELEASE: false # set to true to force a release (useful for testing)
-  DISABLE_DOWNLOAD_PREVIOUS_RELEASE: false
+  FORCE_RELEASE: true # set to true to force a release (useful for testing)
+  SKIP_PREVIOUS_RELEASE_DOWNLOAD: true
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
 
 concurrency:
@@ -80,10 +80,10 @@ jobs:
       - name: Download latest files from Release
         uses: robinraju/release-downloader@v1
         id: download_release
-        if: env.DISABLE_DOWNLOAD_PREVIOUS_RELEASE == 'true' || steps.wd_cache.outputs.cache-hit != 'true'
+        if: env.SKIP_PREVIOUS_RELEASE_DOWNLOAD != 'true'
         with:
           tag: ${{ env.LATEST_CSV_TAG }}
-          fileName: '${{ env.RELEASE_CSV_PREFIX }}*.zip'
+          fileName: '${{ env.RELEASE_CSV_PREFIX }}*.7z'
           extract: false
           
       - name: Unzip latest files
@@ -92,7 +92,7 @@ jobs:
             mkdir -p wd
             if [ -n "${{ steps.download_release.outputs.downloaded_files }}" ]; then
               downloaded_file=$(echo "${{ fromJson(steps.download_release.outputs.downloaded_files)[0] }}" | tr -d '"')
-              unzip -d wd $downloaded_file
+              7z x $downloaded_file -owd
               echo ":package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
             else
               echo "No downloaded files found. Aborting." 1>&2
@@ -229,16 +229,16 @@ jobs:
           path: wd/*
           retention-days: 90
           
-      - name: Create a zip file of csv files
-        id: csv_zip
+      - name: Create a 7z file of csv files
+        id: csv_7z
         run: |
-          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H-%M-%S').zip"
-          7z a "$file_name" wd/*
+          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H-%M-%S').7z"
+          7z a -mx=9 -mfb=258 -mpass=15 "$file_name" wd/*
           size=$(wc -c < "$file_name")
-          echo "zip_file_name=$file_name" >> $GITHUB_OUTPUT
-          echo "zip_file_size=$size" >> $GITHUB_OUTPUT
+          echo "sevenzip_file_name=$file_name" >> $GITHUB_OUTPUT
+          echo "sevenzip_file_size=$size" >> $GITHUB_OUTPUT
           if [ $size -lt 50000 ]; then
-            echo "The resulting zip file is too small ($size bytes). Aborting." 1>&2
+            echo "The resulting 7z file is too small ($size bytes). Aborting." 1>&2
             exit 1
           fi
         
@@ -256,7 +256,7 @@ jobs:
         with:
           allowUpdates: true
           artifactErrorsFailBuild: true
-          artifacts: "${{ steps.csv_zip.outputs.zip_file_name }}"
+          artifacts: "${{ steps.csv_7z.outputs.sevenzip_file_name }}"
           name: Latest csv files
           body: |
             This is an automated release of the latest csv files.
