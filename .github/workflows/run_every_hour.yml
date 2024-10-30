@@ -90,18 +90,26 @@ jobs:
       - name: Unzip latest files
         if: env.SKIP_PREVIOUS_RELEASE_DOWNLOAD != 'true'
         run: |
+          echo "## :package: Unzip latest files" >> $GITHUB_STEP_SUMMARY
           if [ ! -d wd ] || [ -z "$(ls -A wd/)" ]; then
             mkdir -p wd
             if [ -n "${{ steps.download_release.outputs.downloaded_files }}" ]; then
               downloaded_file=$(echo "${{ fromJson(steps.download_release.outputs.downloaded_files)[0] }}" | tr -d '"')
               7z x $downloaded_file -owd
               echo "- :package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
+              echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=release" >> $GITHUB_ENV
             else
               echo "No downloaded files found. Aborting." 1>&2
               exit 0
             fi
           else
             echo "- :information_source: Using cached data instead of downloading from release." >> $GITHUB_STEP_SUMMARY
+            file_name=${{ env.RELEASE_CSV_PREFIX }}cached.7z
+            pushd wd
+            7z a -mx=1 "$file_name" *
+            popd
+            echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$file_name" >> $GITHUB_ENV
+            echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=cache" >> $GITHUB_ENV
             exit 0
           fi
 
@@ -245,21 +253,44 @@ jobs:
           size=$(wc -c < "$file_name")
           echo "sevenzip_file_name=$file_name" >> $GITHUB_OUTPUT
           echo "sevenzip_file_size=$size" >> $GITHUB_OUTPUT
+          {
+            echo "## :package: 7z Archive Details" >> $GITHUB_STEP_SUMMARY
+            echo "| **Property**          | **Value**                    |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------------------|------------------------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :file_folder: **Name** | $file_name                   |" >> $GITHUB_STEP_SUMMARY
+            echo "| :page_facing_up: **Size** | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: **7z Flags** | $sevenzip_flags              |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: **7z Version** | $(7z | head -n 1)           |" >> $GITHUB_STEP_SUMMARY
+            echo "| :lock: **Compression** | Maximum                      |" >> $GITHUB_STEP_SUMMARY
+            echo "| :clock1: **Creation Date** | $(date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
+          }
           if [ $size -lt 50000 ]; then
             echo "The resulting 7z file is too small ($size bytes). Aborting." 1>&2
             exit 1
           fi
-          {
-            echo "## :package: 7z Archive Information" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ env.PREVIOUS_RELEASE_DOWNLOADED_FILE }}" ] && [ -f "${{ env.PREVIOUS_RELEASE_DOWNLOADED_FILE }}" ]; then
+            old_size=$(wc -c < "${{ env.PREVIOUS_RELEASE_DOWNLOADED_FILE }}")
+            delta_size=$(echo "scale=2; ($size - $old_size) / 1024" | bc)
+            delta_percent=$(echo "scale=2; ($size - $old_size) / ($old_size + 1) * 100" | bc)
+
+            echo "## :package: File Size Changes" >> $GITHUB_STEP_SUMMARY
             echo "| Property            | Value                        |" >> $GITHUB_STEP_SUMMARY
             echo "|---------------------|------------------------------|" >> $GITHUB_STEP_SUMMARY
-            echo "| :file_folder: Name  | $file_name                   |" >> $GITHUB_STEP_SUMMARY
-            echo "| :page_facing_up: Size | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
-            echo "| :package: 7z Flags  | $sevenzip_flags              |" >> $GITHUB_STEP_SUMMARY
-            echo "| :package: 7z Version | $(7z | head -n 1)           |" >> $GITHUB_STEP_SUMMARY
-            echo "| :lock: Compression  | Maximum                      |" >> $GITHUB_STEP_SUMMARY
-            echo "| :clock1: Date       | $(date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
-          }
+            echo "| :package: Source     | ${{ env.PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE || 'unknown' }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| :file_folder: Old Size | $(ls -lh "${{ env.PREVIOUS_RELEASE_DOWNLOADED_FILE }}" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+            echo "| :page_facing_up: New Size | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+            echo "| :chart_with_upwards_trend: Delta Size | $delta_size KiB (${delta_percent}%) |" >> $GITHUB_STEP_SUMMARY
+
+            if python -c "import math; print(math.log1p($size) - math.log1p($old_size) < -0.1)" | grep -q "True"; then
+              echo "The resulting 7z file is smaller than the previous one. This is a regression. Aborting." 1>&2
+              echo "### :warning: The resulting 7z file is smaller than the previous one. This is a regression. Aborting." >> $GITHUB_STEP_SUMMARY
+              exit 2
+            fi
+          else
+            echo "## :package: No previous file to compare to." >> $GITHUB_STEP_SUMMARY
+            echo "No previous file to compare to. Skipping size comparison." 1>&2
+          fi
         
       - uses: rickstaa/action-create-tag@v1
         if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (env.FORCE_RELEASE == 'true' || (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'))
