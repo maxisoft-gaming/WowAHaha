@@ -96,17 +96,18 @@ jobs:
             if [ -n "${{ steps.download_release.outputs.downloaded_files }}" ]; then
               downloaded_file=$(echo "${{ fromJson(steps.download_release.outputs.downloaded_files)[0] }}" | tr -d '"')
               7z x $downloaded_file -owd
-              echo "- :package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
+              echo ":package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
+              echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$downloaded_file" >> $GITHUB_ENV
               echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=release" >> $GITHUB_ENV
             else
               echo "No downloaded files found. Aborting." 1>&2
               exit 0
             fi
           else
-            echo "- :information_source: Using cached data instead of downloading from release." >> $GITHUB_STEP_SUMMARY
+            echo ":information_source: Using cached data instead of downloading from release." >> $GITHUB_STEP_SUMMARY
             file_name=${{ env.RELEASE_CSV_PREFIX }}cached.7z
             pushd wd
-            7z a -mx=1 "$file_name" *
+            7z a -mx=1 "../$file_name" *
             popd
             echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$file_name" >> $GITHUB_ENV
             echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=cache" >> $GITHUB_ENV
