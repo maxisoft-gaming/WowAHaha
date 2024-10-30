@@ -27,7 +27,7 @@ env:
   PROGRAM_NAME: WowAHaha
 
 concurrency:
-  group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
+  group: "${{ github.workflow }}-${{ github.actor }}"
   cancel-in-progress: false
 
 jobs:
