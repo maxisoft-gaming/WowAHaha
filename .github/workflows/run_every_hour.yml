@@ -31,7 +31,9 @@ env:
   SKIP_PREVIOUS_RELEASE_DOWNLOAD: false
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
+  USE_WORKING_DIR_CACHE: true
   SEVENZIP_FLAGS: '-mx=6'
+  FIRST_RUN: false # set to true in case no previous files was build
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
@@ -68,17 +70,7 @@ jobs:
         run: |
           dotnet build --configuration ${{ env.dotnet-configuration }} --no-restore
 
-      - name: Cache wd directory
-        uses: actions/cache@v3
-        id: wd_cache
-        if: env.FAST_RELEASE != 'true'
-        with:
-          path: wd
-          enableCrossOsArchive: true
-          key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ env.PROGRAM_NAME }}-csv-wd-
-            
+
       - name: Download latest files from Release
         uses: robinraju/release-downloader@v1
         id: download_release
@@ -87,6 +79,18 @@ jobs:
           tag: ${{ env.LATEST_CSV_TAG }}
           fileName: '${{ env.RELEASE_CSV_PREFIX }}*.7z'
           extract: false
+          
+          
+      - name: Cache wd directory
+        uses: actions/cache@v3
+        id: wd_cache
+        if: env.FAST_RELEASE != 'true' && env.USE_WORKING_DIR_CACHE == 'true'
+        with:
+          path: wd
+          enableCrossOsArchive: true
+          key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ hashFiles('**/*.7z') }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ env.PROGRAM_NAME }}-csv-wd-
           
       - name: Unzip latest files
         if: env.SKIP_PREVIOUS_RELEASE_DOWNLOAD != 'true'
@@ -290,8 +294,12 @@ jobs:
               exit 2
             fi
           else
-            echo "## :package: No previous file to compare to." >> $GITHUB_STEP_SUMMARY
+            echo "## :warning: No previous file to compare to." >> $GITHUB_STEP_SUMMARY
             echo "No previous file to compare to. Skipping size comparison." 1>&2
+            if [ "${{ env.FIRST_RUN }}" != "true" ]; then
+              echo "## :warning: If it's the first run, you must set `FIRST_RUN` to `true` for the script to work." >> $GITHUB_STEP_SUMMARY
+              exit 5
+            fi
           fi
         
       - uses: rickstaa/action-create-tag@v1
