@@ -108,7 +108,7 @@ jobs:
       - name: Checks and Steps Summary
         run: |
           {
-            echo "## ⚠️ Secret Checks"
+            echo "## ⚠️ Secret Checks" >> $GITHUB_STEP_SUMMARY
             if [ -z "${{ secrets.BattleNetClientId }}" ] || [ -z "${{ secrets.BattleNetClientSecret }}" ]; then
               echo "Required secrets are not set. Please set BattleNetClientId and BattleNetClientSecret in your repository secrets." 1>&2
               echo ":x: **Error**: Required secrets are not set. Please set *BattleNetClientId* and *BattleNetClientSecret* in your repository secrets." >> $GITHUB_STEP_SUMMARY
@@ -168,7 +168,7 @@ jobs:
               step_summary.write('| Name               | blake2s Hash                  | File Size                    |\n')
               step_summary.write('|-------------------------|------------------------------|------------------------------|\n')
               for file in files:
-                  hash = hashlib.blake2s(file.read_bytes()).hexdigest() if not fast_release else 'N/A'
+                  hash = hashlib.blake2s(file.read_bytes()).hexdigest() if not fast_release else 'SKIP'
                   size = file.stat().st_size
                   step_summary.write(f"| {file.relative_to(wd)} | {hash} | {human_readable_size(size)} |\n")
 
@@ -238,7 +238,8 @@ jobs:
         id: csv_7z
         run: |
           file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H_%M_%S').7z"
-          7z a -mx=9 "$file_name" wd/*
+          sevenzip_flags='-mx=9'
+          7z a $sevenzip_flags "$file_name" wd/*
           size=$(wc -c < "$file_name")
           echo "sevenzip_file_name=$file_name" >> $GITHUB_OUTPUT
           echo "sevenzip_file_size=$size" >> $GITHUB_OUTPUT
@@ -246,6 +247,17 @@ jobs:
             echo "The resulting 7z file is too small ($size bytes). Aborting." 1>&2
             exit 1
           fi
+          {
+            echo "## :package: 7z Archive Information" >> $GITHUB_STEP_SUMMARY
+            echo "| Property            | Value                        |" >> $GITHUB_STEP_SUMMARY
+            echo "|---------------------|------------------------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :file_folder: Name  | $file_name                   |" >> $GITHUB_STEP_SUMMARY
+            echo "| :page_facing_up: Size | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: 7z Flags  | $sevenzip_flags              |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: 7z Version | $(7z | head -n 1)           |" >> $GITHUB_STEP_SUMMARY
+            echo "| :lock: Compression  | Maximum                      |" >> $GITHUB_STEP_SUMMARY
+            echo "| :clock1: Date       | $(date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
+          }
         
       - uses: rickstaa/action-create-tag@v1
         if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (env.FORCE_RELEASE == 'true' || (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'))
