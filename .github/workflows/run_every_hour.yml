@@ -90,6 +90,8 @@ jobs:
             with open(os.getenv('GITHUB_ENV'), 'a') as env_file:
               env_file.write(f'RELEASE_CSV_SUFFIX={release_csv_suffix}\n')
               env_file.write(f'RELEASE_YEAR_AND_MONTH={year_and_month}\n')
+              env_file.write(f'RELEASE_YEAR={now.year}\n')
+              env_file.write(f'RELEASE_MONTH={now.month}\n')
           
               first_run_from_input = r"""${{ github.event.inputs.first_run }}""".strip()
               if first_run_from_input:
@@ -142,7 +144,7 @@ jobs:
                 overwritten += 1
           
               if not os.getenv('LATEST_CSV_TAG', ''):
-                env_file.write(f'LATEST_CSV_TAG=csv_{year_and_month}\n')
+                env_file.write(f'LATEST_CSV_TAG=csv{now.year}.{now.month}\n')
                 overwritten += 1
               
               if overwritten > 0:
@@ -459,7 +461,7 @@ jobs:
           allowUpdates: true
           artifactErrorsFailBuild: true
           artifacts: "${{ steps.csv_7z.outputs.sevenzip_file_name }}"
-          name: Latest csv files ${{ env.RELEASE_YEAR_AND_MONTH }}
+          name: Auctions csv files for ${{ env.RELEASE_YEAR }}.${{ env.RELEASE_MONTH }}
           body: |
             This is an automated release of the latest csv files.
             From ${{ github.actor }} (${{ github.event_name }}) @ ${{ github.sha }}
