@@ -77,6 +77,7 @@ jobs:
           import os
           import datetime
           import json
+          import collections
 
           true_values = {'true', '1', 'yes', 'on', 'y', 'enable', 'enabled', '#t', '#true', 'ok', 'okay'}
           now = datetime.datetime.utcnow()
@@ -84,6 +85,8 @@ jobs:
           year_and_month = now.strftime('%Y_%m')
           release_csv_suffix = year_and_month + (os.getenv('RELEASE_CSV_SUFFIX') or '.7z')
           overwritten = 0
+          _local_env = dict()
+          env = collections.ChainMap(_local_env, os.environ)
 
           with open(os.getenv('GITHUB_STEP_SUMMARY'), 'a') as step_summary:
             step_summary.write(f'# Run the WowAHaha project for *{year_and_month}* \n')
@@ -95,19 +98,24 @@ jobs:
               env_file.write(f'RELEASE_MONTH={now.month}\n')
           
               first_run_from_input = r"""${{ inputs.first_run }}""".strip().lower()
-              print('first_run_from_input', first_run_from_input)
               if first_run_from_input:
-                env_file.write(f'FIRST_RUN={first_run_from_input in true_values}\n')
+                value = first_run_from_input in true_values
+                env_file.write(f'FIRST_RUN={value}\n')
+                _local_env['FIRST_RUN'] = str(bool(value)).lower()
                 overwritten += 1
 
               force_release_from_input = r"""${{ inputs.force_release }}""".strip().lower()
               if force_release_from_input:
-                env_file.write(f'FORCE_RELEASE={force_release_from_input in true_values}\n')
+                value = force_release_from_input in true_values
+                env_file.write(f'FORCE_RELEASE={value}\n')
+                _local_env['FORCE_RELEASE'] = str(bool(value)).lower()
                 overwritten += 1
 
               fast_release_from_input = r"""${{ inputs.fast_release }}""".strip().lower()
               if fast_release_from_input:
-                env_file.write(f'FAST_RELEASE={fast_release_from_input in true_values}\n')
+                value = fast_release_from_input in true_values
+                env_file.write(f'FAST_RELEASE={value}\n')
+                _local_env['FAST_RELEASE'] = str(bool(value)).lower()
                 overwritten += 1
           
               allowed_actors = r"""${{ secrets.ALLOWED_ACTOR || vars.ALLOWED_ACTOR || env.ALLOWED_ACTOR || github.repository_owner }}""".strip()
@@ -128,14 +136,14 @@ jobs:
                 step_summary.write(f":x: Actor {github_actor} is not allowed.\n")
 
               for bool_env_var in ['FAST_RELEASE', 'USE_WORKING_DIR_CACHE', 'SKIP_PREVIOUS_RELEASE_DOWNLOAD', 'SKIP_BUILD_ATTEST', 'FIRST_RUN', 'FORCE_RELEASE']:
-                if os.getenv(bool_env_var, '').lower() in true_values:
+                if env.get(bool_env_var, '').lower() in true_values:
                   env_file.write(f'{bool_env_var}=true\n')
                 else:
                   env_file.write(f'{bool_env_var}=false\n')
   
               step_summary.write('## :gear: Environment variables \n')
           
-              if os.getenv('FAST_RELEASE', '') == 'true':
+              if env.get('FAST_RELEASE', '') == 'true':
                 env_file.write('USE_WORKING_DIR_CACHE=false\n')
                 env_file.write('SKIP_BUILD_ATTEST=true\n')
                 overwriten += 2
@@ -144,7 +152,7 @@ jobs:
                 env_file.write('FIRST_DAY_OF_MONTH=true\n')
                 overwritten += 1
           
-              if not os.getenv('LATEST_CSV_TAG', ''):
+              if not env.get('LATEST_CSV_TAG', ''):
                 env_file.write(f'LATEST_CSV_TAG=csv{now.year}.{now.month}\n')
                 overwritten += 1
               
@@ -155,7 +163,7 @@ jobs:
               step_summary.write('|----------|------------------|\n')
               for env_var in (['FAST_RELEASE', 'USE_WORKING_DIR_CACHE', 'SKIP_PREVIOUS_RELEASE_DOWNLOAD', 'SKIP_BUILD_ATTEST', 'FIRST_RUN', 'FORCE_RELEASE'] +
                               ['LATEST_CSV_TAG', 'RELEASE_CSV_PREFIX', 'FIRST_DAY_OF_MONTH']):
-                value = os.getenv(env_var, '(not set)')
+                value = env.get(env_var, '(not set)')
                 step_summary.write(f"| {env_var} | {value} |\n")
           
       - uses: actions/checkout@v4.2.2
