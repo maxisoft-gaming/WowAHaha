@@ -11,6 +11,25 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      first_run:
+        description: 'Run the WowAHaha project for the first time'
+        default: false
+        required: false
+        type: boolean
+        
+      force_release:
+        description: 'Force a release (useful for testing)'
+        default: false
+        required: false
+        type: boolean
+        
+      fast_release:
+        description: 'Skip cache, hash and attest-build-provenance'
+        default: false
+        required: false
+        type: boolean
+      
   fork:
     branches:
       - main
@@ -71,6 +90,21 @@ jobs:
             with open(os.getenv('GITHUB_ENV'), 'a') as env_file:
               env_file.write(f'RELEASE_CSV_SUFFIX={release_csv_suffix}\n')
               env_file.write(f'RELEASE_YEAR_AND_MONTH={year_and_month}\n')
+          
+              first_run_from_input = r"""${{ github.event.inputs.first_run }}""".strip()
+              if first_run_from_input:
+                env_file.write(f'FIRST_RUN={first_run_from_input in true_values}\n')
+                overwritten += 1
+
+              force_release_from_input = r"""${{ github.event.inputs.force_release }}""".strip()
+              if force_release_from_input:
+                env_file.write(f'FORCE_RELEASE={force_release_from_input in true_values}\n')
+                overwritten += 1
+
+              fast_release_from_input = r"""${{ github.event.inputs.fast_release }}""".strip()
+              if fast_release_from_input:
+                env_file.write(f'FAST_RELEASE={fast_release_from_input in true_values}\n')
+                overwritten += 1
           
               allowed_actors = r"""${{ secrets.ALLOWED_ACTOR || vars.ALLOWED_ACTOR || env.ALLOWED_ACTOR || github.repository_owner }}""".strip()
 
@@ -151,7 +185,7 @@ jobs:
         if: steps.check-tag.outputs.exists != 'true'
         run: |
           echo "SKIP_PREVIOUS_RELEASE_DOWNLOAD=true" >> $GITHUB_ENV
-          echo "## :information_source: Skipping previous release download as tag `${{ env.LATEST_CSV_TAG }}` does not exist." >> $GITHUB_STEP_SUMMARY
+          echo "## :information_source: Skipping previous release download as tag ${{ env.LATEST_CSV_TAG }} does not exist." >> $GITHUB_STEP_SUMMARY
       
       
       - name: Download latest files from Release
@@ -392,7 +426,7 @@ jobs:
             echo "## :warning: No previous file to compare to." >> $GITHUB_STEP_SUMMARY
             echo "No previous file to compare to. Skipping size comparison." 1>&2
             if [ "${{ env.FIRST_DAY_OF_MONTH || env.FIRST_RUN }}" != "true" ]; then
-              echo '## :warning: If it's the first run, you must set `FIRST_RUN` to `true` for the script to work.' >> $GITHUB_STEP_SUMMARY
+              echo '## :warning: If it's the first run, you must set FIRST_RUN to true for the script to work.' >> $GITHUB_STEP_SUMMARY
               exit 5
             fi
           fi
