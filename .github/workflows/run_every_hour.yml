@@ -25,6 +25,8 @@ env:
   dotnet-configuration: Release
   DOTNET_NOLOGO: true
   PROGRAM_NAME: WowAHaha
+  LATEST_CSV_TAG: latest_csv
+  RELEASE_CSV_PREFIX: wow_ah_csv_
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
@@ -65,12 +67,36 @@ jobs:
 
       - name: Cache wd directory
         uses: actions/cache@v3
+        id: wd_cache
         with:
           path: wd
           enableCrossOsArchive: true
           key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
             ${{ env.PROGRAM_NAME }}-csv-wd-
+            
+      - name: Download latest files from Release
+        uses: robinraju/release-downloader@v1
+        id: download_release
+        if: (steps.wd_cache.outputs.cache-hit != 'true')
+        with:
+          tag: ${{ env.LATEST_CSV_TAG }}
+          fileName: '${{ env.RELEASE_CSV_PREFIX }}*.zip'
+          extract: false
+          
+      - name: Unzip latest files
+        run: |
+          if [ ! -d wd ] || [ -z "$(ls -A wd/)" ]; then
+            mkdir -p wd
+            if [ -n "${{ steps.download_release.outputs.downloaded_files }}" ]; then
+              downloaded_file=$(echo "${{ fromJson(steps.download_release.outputs.downloaded_files)[0] }}" | tr -d '"')
+              unzip -d wd $downloaded_file
+              echo ":package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "No downloaded files found. Aborting." 1>&2
+              exit 0
+            fi
+          fi
 
       - name: Checks and Steps Summary
         run: |
@@ -196,15 +222,26 @@ jobs:
         with:
           name: ${{ env.PROGRAM_NAME }}_csv
           path: wd/*
+          retention-days: 90
           
       - name: Create a zip file of csv files
-        run: 7z a "wow_ah_csv_$(date +'%Y-%m-%d_%H-%M-%S').zip" wd/*
+        id: csv_zip
+        run: |
+          file_name="${{ env.RELEASE_CSV_PREFIX }}}$(date +'%Y-%m-%d_%H-%M-%S').zip"
+          7z a "$file_name" wd/*
+          size=$(wc -c < "$file_name")
+          echo "zip_file_name=$file_name" >> $GITHUB_OUTPUT
+          echo "zip_file_size=$size" >> $GITHUB_OUTPUT
+          if [ $size -lt 50000 ]; then
+            echo "The resulting zip file is too small ($size bytes). Aborting." 1>&2
+            exit 1
+          fi
         
       - uses: rickstaa/action-create-tag@v1
         if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         id: "tag_create"
         with:
-          tag: "latest_csv"
+          tag: ${{ env.LATEST_CSV_TAG }}
           tag_exists_error: false
           force_push_tag: true
 
@@ -214,7 +251,7 @@ jobs:
         with:
           allowUpdates: true
           artifactErrorsFailBuild: true
-          artifacts: "wow_ah_csv_*.zip"
+          artifacts: "${{ steps.csv_zip.outputs.zip_file_name }}"
           name: Latest csv files
           body: |
             This is an automated release of the latest csv files.
@@ -222,5 +259,5 @@ jobs:
           prerelease: false
           make_latest: true
           replacesArtifacts: true
-          owner: ${{ github.actor }}
-          tag: latest_csv
+          #owner: ${{ github.actor }}
+          tag: ${{ env.LATEST_CSV_TAG }}
