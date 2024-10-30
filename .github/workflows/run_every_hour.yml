@@ -1,0 +1,106 @@
+name: Run the WowAHaha project
+
+on:
+  schedule:
+    - cron: "33 * * * *"
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  fork:
+    branches:
+      - main
+  status:
+    branches:
+      - main
+  issues:
+    branches:
+      - main
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  dotnet-version: '8.0.x'
+  dotnet-configuration: Release
+  DOTNET_NOLOGO: true
+  PROGRAM_NAME: WowAHaha
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
+  cancel-in-progress: false
+
+jobs:
+  run-every-hour:
+    name: Run the WowAHaha project
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: 'recursive'
+      - name: Setup .NET Core SDK ${{ env.dotnet-version }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.dotnet-version }}
+          
+      - name: Cache NuGet dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-run-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+      - name: Install dependencies
+        run: dotnet restore
+        
+      - name: Cache build output
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.PROGRAM_NAME }}/bin/${{ env.dotnet-configuration }}
+          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-
+            
+      - name: Build
+        run: |
+          mkdir -p wd
+          dotnet build --configuration ${{ env.dotnet-configuration }} --no-restore
+          
+      - name: Cache wd directory
+        uses: actions/cache@v3
+        with:
+          path: wd
+          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.PROGRAM_NAME }}-csv-wd-
+            
+      - name: Check if secrets are set
+        run: |
+          if [ -z "${{ secrets.BattleNetClientId }}" ] || [ -z "${{ secrets.BattleNetClientSecret }}" ]; then
+            echo "Error: Required secrets are not set. Please set BattleNetClientId and BattleNetClientSecret in your repository secrets."
+            exit 1
+          fi
+          
+      - name: Run WowAHaha
+        if: ${{ github.repository_owner == github.actor }}
+        run: |
+          mkdir -p wd
+          cd wd
+          dotnet run --no-build --configuration Release --project ../${{ env.PROGRAM_NAME }}
+        env:
+          AHaha_BattleNetWebApi:clientId=${{ secrets.BattleNetClientId }}
+          AHaha_BattleNetWebApi:clientSecret=${{ secrets.BattleNetClientSecret }}
+          AHaha_BattleNetWebApi:CredentialEncryptionKey=${{ secrets.BattleNetCredentialEncryptionKey || '' }}
+        
+      - uses: actions/attest-build-provenance@v1
+        if: ${{ github.repository_owner == github.actor }}
+        with:
+            subject-path: 'wd/*'
+
+      - name: Create artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ env.PROGRAM_NAME }}_csv
+          path: wd/*
