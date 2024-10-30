@@ -392,7 +392,7 @@ jobs:
             echo "## :warning: No previous file to compare to." >> $GITHUB_STEP_SUMMARY
             echo "No previous file to compare to. Skipping size comparison." 1>&2
             if [ "${{ env.FIRST_DAY_OF_MONTH || env.FIRST_RUN }}" != "true" ]; then
-              echo "## :warning: If it's the first run, you must set `FIRST_RUN` to `true` for the script to work." >> $GITHUB_STEP_SUMMARY
+              echo '## :warning: If it's the first run, you must set `FIRST_RUN` to `true` for the script to work.' >> $GITHUB_STEP_SUMMARY
               exit 5
             fi
           fi
