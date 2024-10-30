@@ -131,7 +131,7 @@ jobs:
                   env_file.write(f'''ALLOWED_ACTOR={allowed_actors}\n''')
           
               if allowed_actors and github_actor in allowed_actors:
-                step_summary.write(f":white_check_mark: Actor {github_actor} is allowed.\n")
+                step_summary.write(f":white_check_mark: Actor {github_actor} is allowed to publish releases.\n")
               else:
                 step_summary.write(f":x: Actor {github_actor} is not allowed.\n")
 
@@ -154,7 +154,6 @@ jobs:
           
               if not env.get('LATEST_CSV_TAG', ''):
                 env_file.write(f'LATEST_CSV_TAG=csv{now.year}.{now.month}\n')
-                overwritten += 1
               
               if overwritten > 0:
                 step_summary.write(f'### Some environment variables were dynamically added/overwritten: {overwritten} \n')
@@ -233,7 +232,7 @@ jobs:
               rm -rf wd/wd
               echo ":package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
               # create a physical hard link to the previous release archive
-              PREVIOUS_RELEASE_DOWNLOADED_FILE="${{ env.RELEASE_CSV_PREFIX }}previous_release${{ env.RELEASE_CSV_SUFFIX }}"
+              PREVIOUS_RELEASE_DOWNLOADED_FILE="$(pwd)/${{ env.RELEASE_CSV_PREFIX }}previous_release${{ env.RELEASE_CSV_SUFFIX }}"
               ln "$downloaded_file" $PREVIOUS_RELEASE_DOWNLOADED_FILE
               echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$PREVIOUS_RELEASE_DOWNLOADED_FILE" >> $GITHUB_ENV
               echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=release" >> $GITHUB_ENV
@@ -250,7 +249,7 @@ jobs:
             rm -rf wd
             7z a ${{ env.SEVENZIP_FLAGS }} "../$file_name" *
             popd
-            echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$file_name" >> $GITHUB_ENV
+            echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$(pwd)/$file_name" >> $GITHUB_ENV
             echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=cache" >> $GITHUB_ENV
             exit 0
           fi
@@ -472,8 +471,8 @@ jobs:
           artifacts: "${{ steps.csv_7z.outputs.sevenzip_file_name }}"
           name: ${{ env.RELEASE_YEAR }}.${{ env.RELEASE_MONTH }} csv
           body: |
-            This is an automated release of the latest csv files.
-            From ${{ github.actor }} (${{ github.event_name }}) @ ${{ github.sha }}
+            This is an automated release of the latest auctions csv files.
+            From @${{ github.actor }} triggered by (${{ github.event_name }}) @ ${{ github.sha }}
           draft: false
           prerelease: false
           makeLatest: true
