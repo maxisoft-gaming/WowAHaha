@@ -146,7 +146,7 @@ jobs:
               if env.get('FAST_RELEASE', '') == 'true':
                 env_file.write('USE_WORKING_DIR_CACHE=false\n')
                 env_file.write('SKIP_BUILD_ATTEST=true\n')
-                overwriten += 2
+                overwritten += 2
           
               if now.day == 1:
                 env_file.write('FIRST_DAY_OF_MONTH=true\n')
