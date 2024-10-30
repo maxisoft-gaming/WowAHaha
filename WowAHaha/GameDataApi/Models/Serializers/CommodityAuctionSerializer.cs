@@ -68,8 +68,9 @@ public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansion
         DirectoryInfo dir = Directory.CreateDirectory(dirPath);
         Debug.Assert(dir.Exists);
 
-        var files = new Dictionary<string, (FileStream stream, StreamWriter)>((int)WowExpansion.Latest);
+        var files = new Dictionary<string, FileStream>((int)WowExpansion.Latest);
         var filesSafeIndices = new Dictionary<string, long>();
+        var completedSuccessfully = false;
 
         try
         {
@@ -80,47 +81,57 @@ public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansion
                 {
                     continue;
                 }
+
                 stats.Complete();
                 WowExpansion expansion = itemToExpansionResolver.GetExpansion(itemId);
                 var path = Path.Combine(dirPath, $"{(int)expansion:00}_{expansion}.csv");
-                StreamWriter writer;
                 FileStream stream;
 
-                if (!files.TryGetValue(path, out (FileStream stream, StreamWriter) streamPair))
+                if (!files.TryGetValue(path, out FileStream? previousStream))
                 {
                     stream = File.Open(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
 
-                    // remove last line if it's empty
-                    var seekPosition = stream.TrimEnd();
-                    Debug.Assert(seekPosition >= 0, "Failed to remove last line");
-                    writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true) { AutoFlush = false };
                     try
                     {
-                        if (seekPosition == 0)
+                        var seekPosition = stream.TrimEnd();
+                        Debug.Assert(seekPosition >= 0, "Failed to remove last line");
                         {
-                            await WriteCsvHeader(writer, expansion, cancellationToken);
+                            await using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+                            writer.AutoFlush = true;
+                            if (seekPosition == 0)
+                            {
+                                await WriteCsvHeader(writer, expansion, cancellationToken);
+                            }
+                            else
+                            {
+                                await writer.WriteLineAsync();
+                            }
                         }
-
-                        files[path] = (stream, writer);
+                        
+                        Debug.Assert(stream.Position > seekPosition);
+                        files[path] = stream;
                     }
                     catch (Exception)
                     {
-                        await writer.DisposeAsync();
+                        logger.LogDebug("Exception caught, will close stream");
+                        await stream.DisposeAsync();
                         throw;
                     }
                 }
                 else
                 {
-                    (stream, writer) = streamPair;
+                    stream = previousStream;
                 }
 
                 WriteCsvEntry(stream, expansion, stats, modifiedTimestamp);
                 if (filesSafeIndices.TryGetValue(path, out var filesSafeIndex) && stream.Position - filesSafeIndex > 256)
                 {
-                    await writer.FlushAsync(cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
                     filesSafeIndices[path] = stream.Position;
                 }
             }
+
+            completedSuccessfully = true;
         }
         finally
         {
@@ -135,25 +146,22 @@ public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansion
             cts.CancelAfter(TimeSpan.FromSeconds(10));
 
             Task writeSummaryTask = WriteSummary(nameSpace, bag, modifiedTimestamp, cts.Token);
-            foreach ((var path, (FileStream stream, StreamWriter writer)) in files)
+            foreach ((var path, FileStream stream) in files)
             {
-                await writer.FlushAsync(cts.Token);
                 if (stream.CanWrite)
                 {
                     _ = stream.TrimEnd();
 
-                    if (filesSafeIndices.TryGetValue(path, out var filesSafeIndex) && filesSafeIndex > 0 && filesSafeIndex < stream.Position)
+                    if (!completedSuccessfully && filesSafeIndices.TryGetValue(path, out var filesSafeIndex) && filesSafeIndex > 0 && filesSafeIndex < stream.Position)
                     {
                         stream.SetLength(filesSafeIndex);
+                        _ = stream.TrimEnd();
                     }
-
-                    _ = stream.TrimEnd();
                 }
 
 
                 await stream.FlushAsync(cts.Token);
 
-                await writer.DisposeAsync();
                 await stream.DisposeAsync();
             }
 
