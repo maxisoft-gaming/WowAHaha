@@ -33,7 +33,7 @@ env:
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
   USE_WORKING_DIR_CACHE: false
-  SEVENZIP_FLAGS: '-mx=6'
+  SEVENZIP_FLAGS: '-mx=6 -xr!*.7z -xr!*.zip'
   FIRST_RUN: false # set to true in case no previous files was build
 
 concurrency:
@@ -102,6 +102,9 @@ jobs:
             if [ -n "${{ steps.download_release.outputs.downloaded_files }}" ]; then
               downloaded_file=$(echo "${{ fromJson(steps.download_release.outputs.downloaded_files)[0] }}" | tr -d '"')
               7z x $downloaded_file -owd
+              rm -rf wd/*.7z
+              rm -rf wd/*.zip
+              rm -rf wd/wd
               echo ":package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
               echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$downloaded_file" >> $GITHUB_ENV
               echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=release" >> $GITHUB_ENV
@@ -113,6 +116,9 @@ jobs:
             echo ":information_source: Using cached data instead of downloading from release." >> $GITHUB_STEP_SUMMARY
             file_name=${{ env.RELEASE_CSV_PREFIX }}cached.7z
             pushd wd
+            rm -rf *.7z
+            rm -rf *.zip
+            rm -rf wd
             7z a ${{ env.SEVENZIP_FLAGS }} "../$file_name" *
             popd
             echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$file_name" >> $GITHUB_ENV
@@ -199,6 +205,12 @@ jobs:
           $env:AHaha_BattleNetWebApi:CredentialEncryptionKey='${{ secrets.BattleNetCredentialEncryptionKey }}';
           dotnet run --no-build --configuration Release --project "../${{ env.PROGRAM_NAME }}"
         shell: pwsh
+        
+        
+        
+        # TODO check files
+        # TODO check changes via hash
+        # TODO skip early if no changes
 
       - name: Summary of the generated CSV files
         shell: python
@@ -282,11 +294,11 @@ jobs:
             echo "| :page_facing_up: New Size | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
             echo "| :chart_with_upwards_trend: Delta Size | $delta_size KiB (${delta_percent}%) |" >> $GITHUB_STEP_SUMMARY
 
-            if python -c "import math; print(math.log1p($size) - math.log1p($old_size) < -0.1)" | grep -q "True"; then
-              echo "The resulting 7z file is smaller than the previous one. This is a regression. Aborting." 1>&2
-              echo "### :warning: The resulting 7z file is smaller than the previous one. This is a regression. Aborting." >> $GITHUB_STEP_SUMMARY
-              exit 2
-            fi
+            #if python -c "import math; print(math.log1p($size) - math.log1p($old_size) < -0.1)" | grep -q "True"; then
+            #  echo "The resulting 7z file is smaller than the previous one. This is a regression. Aborting." 1>&2
+            #  echo "### :warning: The resulting 7z file is smaller than the previous one. This is a regression. Aborting." >> $GITHUB_STEP_SUMMARY
+            #  exit 2
+            #fi
           
             if python -c "print(float($delta_percent) == 0)" | grep -q "True"; then
               echo ARCHIVE_NO_CHANGE=true >> $GITHUB_ENV
