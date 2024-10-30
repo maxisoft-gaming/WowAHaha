@@ -31,6 +31,7 @@ env:
   SKIP_PREVIOUS_RELEASE_DOWNLOAD: false
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
+  SEVENZIP_FLAGS: '-mx=6'
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
@@ -107,7 +108,7 @@ jobs:
             echo ":information_source: Using cached data instead of downloading from release." >> $GITHUB_STEP_SUMMARY
             file_name=${{ env.RELEASE_CSV_PREFIX }}cached.7z
             pushd wd
-            7z a -mx=1 "../$file_name" *
+            7z a ${{ env.SEVENZIP_FLAGS }} "../$file_name" *
             popd
             echo "PREVIOUS_RELEASE_DOWNLOADED_FILE=$file_name" >> $GITHUB_ENV
             echo "PREVIOUS_RELEASE_DOWNLOADED_FILE_SOURCE=cache" >> $GITHUB_ENV
@@ -247,23 +248,23 @@ jobs:
         id: csv_7z
         run: |
           file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H_%M_%S').7z"
-          sevenzip_flags='-mx=9'
           pushd wd
-          7z a $sevenzip_flags "../$file_name" *
+          7z a ${{ env.SEVENZIP_FLAGS }} "../$file_name" *
           popd
           size=$(wc -c < "$file_name")
           echo "sevenzip_file_name=$file_name" >> $GITHUB_OUTPUT
           echo "sevenzip_file_size=$size" >> $GITHUB_OUTPUT
           {
             echo "## :package: 7z Archive Details" >> $GITHUB_STEP_SUMMARY
-            echo "| **Property**          | **Value**                    |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------------------|------------------------------|" >> $GITHUB_STEP_SUMMARY
-            echo "| :file_folder: **Name** | $file_name                   |" >> $GITHUB_STEP_SUMMARY
-            echo "| :page_facing_up: **Size** | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
-            echo "| :package: **7z Flags** | $sevenzip_flags              |" >> $GITHUB_STEP_SUMMARY
-            echo "| :package: **7z Version** | $(7z | head -n 1)           |" >> $GITHUB_STEP_SUMMARY
-            echo "| :lock: **Compression** | Maximum                      |" >> $GITHUB_STEP_SUMMARY
-            echo "| :clock1: **Creation Date** | $(date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
+            echo "| Property            | Value                        |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------------------|------------------------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :file_folder: Name  | $file_name                   |" >> $GITHUB_STEP_SUMMARY
+            echo "| :page_facing_up: Size | $(ls -lh "$file_name" | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: 7z Flags  | ${{ env.SEVENZIP_FLAGS }}              |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: 7z Version | $(7z i | head -n 2 | tail -n 1)           |" >> $GITHUB_STEP_SUMMARY
+            echo "| :package: p7zip Version | $(7z i | head -n 3 | tail -n 1)           |" >> $GITHUB_STEP_SUMMARY
+            echo "| :lock: Compression  | Maximum                      |" >> $GITHUB_STEP_SUMMARY
+            echo "| :clock1: Creation Date | $(date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
           }
           if [ $size -lt 50000 ]; then
             echo "The resulting 7z file is too small ($size bytes). Aborting." 1>&2
