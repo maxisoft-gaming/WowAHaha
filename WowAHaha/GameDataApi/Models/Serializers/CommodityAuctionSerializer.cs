@@ -48,7 +48,7 @@ public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansion
     private static readonly StandardFormat GeneralFormat = StandardFormat.Parse("G");
     private static readonly StandardFormat StatsFormat = StandardFormat.Parse("F3");
 
-    private static readonly char Separator = 456.123f.ToString("G").Contains('.') ? ';' : ',';
+    private static readonly char Separator = 456.123f.ToString("G").Contains(',') ? ';' : ',';
 
     public async Task WriteToFiles(RunningAuctionStatsBag bag, GameDataDynamicNameSpace nameSpace, DateTimeOffset modifiedTimestamp, CancellationToken cancellationToken)
     {
