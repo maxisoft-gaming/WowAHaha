@@ -196,29 +196,22 @@ jobs:
         with:
           name: ${{ env.PROGRAM_NAME }}_csv
           path: wd/*
-
-      - name: Delete old releases
-        uses: sgpublic/delete-release-action@v1.1
-        if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
-        with:
-          release-drop: true
-          release-keep-count: 2
-          release-drop-tag: true
-          pre-release-drop: true
-          pre-release-keep-count: -1
-          pre-release-drop-tag: true
-          draft-drop: false
-          draft-drop-count: -1
+          
+      - name: Create a zip file of csv files
+        run: 7z a "wow_ah_csv_$(date +'%Y-%m-%d_%H-%M-%S').zip" wd/*
 
       - name: Create a new release
-        uses: softprops/github-release-action@v1
+        uses: ncipollo/release-action@v1
         if: (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         with:
-          files: wd/*
+          allowUpdates: true
+          artifactErrorsFailBuild: true
+          artifacts: "wow_ah_csv_*.zip"
           name: Latest csv files
           body: |
             This is an automated release of the latest csv files.
           draft: false
           prerelease: false
           make_latest: true
-          fail_on_unmatched_files: true
+          replacesArtifacts: true
+          owner: ${{ github.actor }}
