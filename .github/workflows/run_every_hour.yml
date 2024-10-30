@@ -29,6 +29,7 @@ env:
   RELEASE_CSV_PREFIX: wow_ah_csv_
   FORCE_RELEASE: true # set to true to force a release (useful for testing)
   SKIP_PREVIOUS_RELEASE_DOWNLOAD: true
+  SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
 
 concurrency:
@@ -87,17 +88,21 @@ jobs:
           extract: false
           
       - name: Unzip latest files
+        if: env.SKIP_PREVIOUS_RELEASE_DOWNLOAD != 'true'
         run: |
           if [ ! -d wd ] || [ -z "$(ls -A wd/)" ]; then
             mkdir -p wd
             if [ -n "${{ steps.download_release.outputs.downloaded_files }}" ]; then
               downloaded_file=$(echo "${{ fromJson(steps.download_release.outputs.downloaded_files)[0] }}" | tr -d '"')
               7z x $downloaded_file -owd
-              echo ":package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
+              echo "- :package: Extracted files from $downloaded_file" >> $GITHUB_STEP_SUMMARY
             else
               echo "No downloaded files found. Aborting." 1>&2
               exit 0
             fi
+          else
+            echo "- :information_source: Using cached data instead of downloading from release." >> $GITHUB_STEP_SUMMARY
+            exit 0
           fi
 
       - name: Checks and Steps Summary
@@ -216,7 +221,7 @@ jobs:
                   step_summary.write(f"| {file.relative_to(wd)} | {hash.hexdigest()} | {human_readable_size(size)} |\n")
 
       - name: Attest Build Provenance of csv files
-        if: env.FAST_RELEASE != 'true'
+        if: env.FAST_RELEASE != 'true' && env.SKIP_BUILD_ATTESTATION != 'true'
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: 'wd/*'
@@ -232,8 +237,8 @@ jobs:
       - name: Create a 7z file of csv files
         id: csv_7z
         run: |
-          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H-%M-%S').7z"
-          7z a -mx=9 -mfb=258 -mpass=15 "$file_name" wd/*
+          file_name="${{ env.RELEASE_CSV_PREFIX }}$(date +'%Y_%m_%d_%H_%M_%S').7z"
+          7z a -mx=9 "$file_name" wd/*
           size=$(wc -c < "$file_name")
           echo "sevenzip_file_name=$file_name" >> $GITHUB_OUTPUT
           echo "sevenzip_file_size=$size" >> $GITHUB_OUTPUT
