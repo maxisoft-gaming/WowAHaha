@@ -192,7 +192,7 @@ jobs:
         with:
           tag: ${{ env.LATEST_CSV_TAG }}
 
-      - name: Skip previous release download
+      - name: Check if tag exists
         if: steps.check-tag.outputs.exists != 'true'
         run: |
           echo "SKIP_PREVIOUS_RELEASE_DOWNLOAD=true" >> $GITHUB_ENV
@@ -470,7 +470,7 @@ jobs:
           allowUpdates: true
           artifactErrorsFailBuild: true
           artifacts: "${{ steps.csv_7z.outputs.sevenzip_file_name }}"
-          name: Auctions csv files for ${{ env.RELEASE_YEAR }}.${{ env.RELEASE_MONTH }}
+          name: ${{ env.RELEASE_YEAR }}.${{ env.RELEASE_MONTH }} csv
           body: |
             This is an automated release of the latest csv files.
             From ${{ github.actor }} (${{ github.event_name }}) @ ${{ github.sha }}
