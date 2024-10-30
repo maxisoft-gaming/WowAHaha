@@ -67,6 +67,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: wd
+          enableCrossOsArchive: true
           key: ${{ env.PROGRAM_NAME }}-csv-wd-${{ runner.os }}-${{ github.sha }}-${{ github.run_id }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: |
             ${{ env.PROGRAM_NAME }}-csv-wd-
@@ -120,9 +121,9 @@ jobs:
           wd = Path('wd')
           if not wd.exists():
               print('No wd directory', file=sys.stderr)
-              sys.exit(1)
+              sys.exit(0)
 
-          files: list[pathlib.Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
+          files: list[Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
           if len(files) == 0:
               print('No CSV files previously generated')
               sys.exit(0)
@@ -168,7 +169,7 @@ jobs:
               print('No wd directory', file=sys.stderr)
               sys.exit(1)
 
-          files: list[pathlib.Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
+          files: list[Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
           if len(files) == 0:
               print('No CSV files generated', file=sys.stderr)
               sys.exit(1)
