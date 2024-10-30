@@ -83,18 +83,17 @@ jobs:
           fi
           
       - name: Run WowAHaha
-        if: ${{ github.repository_owner == github.actor }}
+        if: ${{ (vars.ALLOWED_ACTOR || github.repository_owner) == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
         run: |
           mkdir -p wd
           cd wd
-          dotnet run --no-build --configuration Release --project ../${{ env.PROGRAM_NAME }}
-        env:
-          AHaha_BattleNetWebApi:clientId=${{ secrets.BattleNetClientId }}
-          AHaha_BattleNetWebApi:clientSecret=${{ secrets.BattleNetClientSecret }}
-          AHaha_BattleNetWebApi:CredentialEncryptionKey=${{ secrets.BattleNetCredentialEncryptionKey || '' }}
+          $env:AHaha_BattleNetWebApi:clientId='${{ secrets.BattleNetClientId }}';
+          $env:AHaha_BattleNetWebApi:clientSecret='${{ secrets.BattleNetClientSecret }}';
+          $env:AHaha_BattleNetWebApi:CredentialEncryptionKey='${{ secrets.BattleNetCredentialEncryptionKey }}';
+          dotnet run --no-build --configuration Release --project "../${{ env.PROGRAM_NAME }}"
+        shell: pwsh
         
       - uses: actions/attest-build-provenance@v1
-        if: ${{ github.repository_owner == github.actor }}
         with:
             subject-path: 'wd/*'
 
