@@ -145,7 +145,7 @@ public sealed class RunningAuctionStats
     }
 
     private static bool IsOutlierCore(RunningWeightedStatistics stats, long updateCounter, ApiPartialAuction auction, double maxDeviation = 5, double minDeviation = 3,
-        double negWeight = 3)
+        double negWeight = 5)
     {
         Debug.Assert(minDeviation < maxDeviation, "minDeviation < maxDeviation");
         var mean = stats.Mean;
