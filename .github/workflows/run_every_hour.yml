@@ -176,7 +176,7 @@ jobs:
         run: dotnet restore
 
       - name: Cache build output
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ${{ env.PROGRAM_NAME }}/bin/${{ env.dotnet-configuration }}
           key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
@@ -208,7 +208,7 @@ jobs:
           extract: false
 
       - name: Cache wd directory
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: wd_cache
         if: env.USE_WORKING_DIR_CACHE == 'true'
         with:
