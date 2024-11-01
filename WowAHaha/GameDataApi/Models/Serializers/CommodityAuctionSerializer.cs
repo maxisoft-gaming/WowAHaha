@@ -22,6 +22,7 @@ public interface ICommodityAuctionSerializer
     public Task<CollectAndSaveCommoditiesExecutionSummary?> LoadPreviousSummary(GameDataDynamicNameSpace nameSpace, CancellationToken cancellationToken);
 }
 
+// ReSharper disable once UnusedType.Global
 public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansionResolver, ILogger<CommodityAuctionSerializer> logger) : ICommodityAuctionSerializer
 {
     private const string LatestSummaryFileName = "latest_summary.json";
@@ -107,7 +108,7 @@ public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansion
                                 await writer.WriteLineAsync();
                             }
                         }
-                        
+
                         Debug.Assert(stream.Position > seekPosition);
                         files[path] = stream;
                     }
@@ -225,7 +226,7 @@ public class CommodityAuctionSerializer(IItemToExpansionResolver itemToExpansion
 
     private static async Task WriteCsvHeader(StreamWriter writer, WowExpansion expansion, CancellationToken cancellationToken)
     {
-        var headerColumns = new string[]
+        var headerColumns = new[]
         {
             "timestamp", "id", "min", "qty", "n", "w", "mean", "std",
             "skew", "kurt", "q01", "q05", "q10", "q25", "q50", "q75"

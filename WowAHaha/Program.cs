@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -42,6 +43,8 @@ namespace WowAHaha
 #endif
     }
 
+    // ReSharper disable once ClassNeverInstantiated.Global
+
     internal class Program
     {
         private static readonly LoggingSettings LoggingSettings = new();
@@ -67,16 +70,17 @@ namespace WowAHaha
             };
             CancellationToken cancellationToken = container.GetInstance<Boxed<CancellationToken>>();
 
-            IReadOnlyList<IRunnableService> services = container.GetAllInstances<IRunnableService>();
+            var services = container.GetAllInstances<IRunnableService>().OrderBy(static s => -s.Priority).ToImmutableList();
             if (services.Count == 0)
             {
                 logger.LogError("no services configured");
             }
 
-            foreach (IRunnableService service in services)
+            await Parallel.ForEachAsync(services, cancellationToken, async (service, cancellationToken) =>
             {
-                await service.Run(cancellationToken);
-            }
+                await Task.Delay(services.IndexOf(service) * 50, cancellationToken).ConfigureAwait(false);
+                await service.Run(cancellationToken).ConfigureAwait(false);
+            });
         }
 
         private static IConfiguration GetConfiguration()
@@ -116,6 +120,7 @@ namespace WowAHaha
                 x.For<IConfiguration>().Use(config);
                 x.ForSingletonOf<CancellationTokenSource>().UseIfNone(cts);
                 x.For<Boxed<CancellationToken>>().Use(context => context.GetInstance<CancellationTokenSource>().Token);
+                x.ForSingletonOf<ProgramWorkerSemaphore>().UseIfNone<ProgramWorkerSemaphore>();
                 //IConfigurationSection resilienceSettings = config.GetSection("Http.ResilienceSettings");
                 x.ForSingletonOf<BattleNetWebApi>().Use<BattleNetWebApi>();
                 x.AddHttpClient<BattleNetWebApi>(configureClient =>

@@ -3,7 +3,7 @@ using WowAHaha.GameDataApi.Http;
 using WowAHaha.GameDataApi.Models.Serializers;
 using WowAHaha.GameDataApi.Statistics;
 
-namespace WowAHaha.GameDataApi;
+namespace WowAHaha.GameDataApi.Services;
 
 public class TimeOutOfSyncOrApiError(string message) : Exception(message);
 
@@ -13,23 +13,19 @@ public class CollectAndSaveCommoditiesService(
     IBattleNetWebApi api,
     ProgramConfigurations programConfig,
     ILogger<CollectAndSaveCommoditiesService> logger,
-    ICommodityAuctionSerializer serializer) : IRunnableService
+    ICommodityAuctionSerializer serializer,
+    ProgramWorkerSemaphore semaphore) : IRunnableService
 {
     public async Task Run(CancellationToken cancellationToken)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        var maxWorkers = Math.Max(programConfig.MaxWorkers, 1);
-        logger.LogDebug("MaxWorkers: {MaxWorkers}", maxWorkers);
-        using var semaphore = new SemaphoreSlim(maxWorkers, maxWorkers);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         // ReSharper disable once VariableHidesOuterVariable
         await Parallel.ForEachAsync(Enum.GetValues<GameDataDynamicNameSpace>(), cts.Token, async (nameSpace, cancellationToken) =>
         {
 #if DEBUG
-            if (maxWorkers == 1)
-            {
                 await Task.Delay(((int)nameSpace + 1) * 20, cancellationToken); // easy way to process dynamic namespace in order
-            }
+
 #endif
 
 

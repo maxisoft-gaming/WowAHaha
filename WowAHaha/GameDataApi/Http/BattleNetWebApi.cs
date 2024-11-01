@@ -8,6 +8,8 @@ using JasperFx.Core.Reflection;
 using Maxisoft.Utils;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using WowAHaha.GameDataApi.Models;
+using WowAHaha.GameDataApi.Models.Serializers;
 using WowAHaha.GameDataApi.Statistics;
 using WowAHaha.Utils;
 
@@ -27,6 +29,8 @@ public interface IBattleNetWebApi
     Task<RunningAuctionStatsBag> GetCommoditiesAuctions(GameDataDynamicNameSpace dynamicNameSpace, string locale = "auto",
         Action<(DateTimeOffset? Date, DateTimeOffset? LastModified)>? onDateAndLastModifiedHook = null,
         CancellationToken cancellationToken = default);
+
+    Task<WowTokenPrice?> GetWowTokenPrice(GameDataDynamicNameSpace dynamicNameSpace, string locale = "auto", CancellationToken cancellationToken = default);
 }
 
 public class BattleNetWebApi(
@@ -48,6 +52,24 @@ public class BattleNetWebApi(
     private BattleNetWebApiConfiguration? _configuration;
 
     private IConfigurationSection Configuration { get; } = GetConfigurationSection(configurationProvider);
+
+    public async Task<WowTokenPrice?> GetWowTokenPrice(GameDataDynamicNameSpace dynamicNameSpace, string locale = "auto", CancellationToken cancellationToken = default)
+    {
+        Uri requestUri = BuildWowTokenUri(dynamicNameSpace, locale);
+        BattleNetWebApiAccessToken accessToken = await GetAccessToken(cancellationToken);
+
+        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.AccessToken);
+
+        using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException($"{response.StatusCode} {response.ReasonPhrase} {error}");
+        }
+        
+        return await response.Content.ReadFromJsonAsync(typeof(WowTokenPrice), WowTokenPriceSourceGenerationContext.Default, cancellationToken) as WowTokenPrice;
+    }
 
     public async Task<RunningAuctionStatsBag> GetCommoditiesAuctions(GameDataDynamicNameSpace dynamicNameSpace, string locale = "auto",
         Action<(DateTimeOffset? Date, DateTimeOffset? LastModified)>? onDateAndLastModifiedHook = null,
@@ -228,6 +250,26 @@ public class BattleNetWebApi(
         Uri requestUri = urlRewriter[dynamicNameSpace.ToHostUri()];
         var nameSpaceDynamic = dynamicNameSpace.ToDynamicName();
         var requestUriString = urlRewriter[$"{requestUri}/data/wow/auctions/commodities"]
+                               + $"?namespace={nameSpaceDynamic}";
+
+        if (!string.IsNullOrEmpty(locale))
+        {
+            if (locale == "auto")
+            {
+                locale = dynamicNameSpace.GetLocale();
+            }
+
+            requestUriString += $"&locale={locale}";
+        }
+
+        return new Uri(urlRewriter[requestUriString]);
+    }
+    
+    private Uri BuildWowTokenUri(GameDataDynamicNameSpace dynamicNameSpace, string locale)
+    {
+        Uri requestUri = urlRewriter[dynamicNameSpace.ToHostUri()];
+        var nameSpaceDynamic = dynamicNameSpace.ToDynamicName();
+        var requestUriString = urlRewriter[$"{requestUri}/data/wow/token/index"]
                                + $"?namespace={nameSpaceDynamic}";
 
         if (!string.IsNullOrEmpty(locale))

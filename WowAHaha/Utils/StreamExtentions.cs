@@ -23,6 +23,10 @@ public static class StreamExtentions
 
             stream.Seek(-Math.Min(seekPosition, bufferSize), SeekOrigin.Current);
             var bytesRead = stream.Read(bytes);
+            if (bytesRead == 0)
+            {
+                return seekPosition;
+            }
             for (var i = bytesRead - 1; i >= 0 && !done; i--)
             {
                 switch ((char)bytes[i])
@@ -33,6 +37,10 @@ public static class StreamExtentions
                     case '\t':
                     case ' ':
                         seekPosition--;
+                        if (seekPosition == 0)
+                        {
+                            done = true;
+                        }
                         break;
                     default:
                         done = true;
