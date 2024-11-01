@@ -284,7 +284,7 @@ jobs:
             echo "| :package: OS Version   | $(uname -v)            |" >> $GITHUB_STEP_SUMMARY
           }
 
-      - name: Summary of the previously generated CSV files
+      - name: Summary of the previously generated files
         shell: python
         run: |
           import os
@@ -307,13 +307,13 @@ jobs:
               print('No wd directory', file=sys.stderr)
               sys.exit(0)
 
-          files: list[Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
+          files: list[Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json'))) + sorted(set(wd.rglob('*.jsonl')))
           if len(files) == 0:
               print('No CSV files previously generated')
               sys.exit(0)
           
           with open(os.getenv('GITHUB_STEP_SUMMARY'), 'a') as step_summary:
-              step_summary.write('## :file_folder: **Previously** Generated CSV files\n')
+              step_summary.write('## :file_folder: **Previously** Generated files\n')
               step_summary.write('| Name               | blake2s Hash                  | File Size                    |\n')
               step_summary.write('|-------------------------|------------------------------|------------------------------|\n')
               for file in files:
@@ -340,7 +340,7 @@ jobs:
         # TODO check changes via hash
         # TODO skip early if no changes
 
-      - name: Summary of the generated CSV files
+      - name: Summary of the generated files
         shell: python
         run: |
           import os
@@ -361,13 +361,13 @@ jobs:
               print('No wd directory', file=sys.stderr)
               sys.exit(1)
 
-          files: list[Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json')))
+          files: list[Path] = sorted(set(wd.rglob('*.csv'))) + sorted(set(wd.rglob('*.json'))) + sorted(set(wd.rglob('*.jsonl')))
           if len(files) == 0:
               print('No CSV files generated', file=sys.stderr)
               sys.exit(1)
           
           with open(os.getenv('GITHUB_STEP_SUMMARY'), 'a') as step_summary:
-              step_summary.write('## :file_folder: **Newly** Generated CSV files\n')
+              step_summary.write('## :file_folder: **Newly** Generated files\n')
               step_summary.write('| Name               | blake2s Hash                  | File Size                    |\n')
               step_summary.write('|-------------------------|------------------------------|------------------------------|\n')
               for file in files:
@@ -471,7 +471,7 @@ jobs:
           artifacts: "${{ steps.csv_7z.outputs.sevenzip_file_name }}"
           name: ${{ env.RELEASE_YEAR }}.${{ env.RELEASE_MONTH }} csv
           body: |
-            This is an automated release of the latest auctions csv files.
+            This is an automated release of the latest auctions csv files and token prices.
             From @${{ github.actor }} triggered by (${{ github.event_name }}) @ ${{ github.sha }}
           draft: false
           prerelease: false
