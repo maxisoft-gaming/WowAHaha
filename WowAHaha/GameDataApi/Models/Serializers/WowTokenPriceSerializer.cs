@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
@@ -17,6 +19,10 @@ public interface IWowTokenPriceSerializer
 // ReSharper disable once UnusedType.Global
 public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : IWowTokenPriceSerializer
 {
+    private record CachedEntry(WowTokenPriceWithNamespace Price, string Path, long FileSize, DateTime LastModified, long Position);
+
+    private readonly ConcurrentDictionary<GameDataDynamicNameSpace, CachedEntry> _cache = new();
+
     public async Task SavePrice(CancellationToken cancellationToken, params WowTokenPriceWithNamespace[] prices)
     {
         var path = GetFilePath();
@@ -46,6 +52,24 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
             return null;
         }
 
+        DateTime lastModified;
+        try
+        {
+            lastModified = File.GetLastWriteTime(path);
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Failed to get last write time for {Path}", path);
+            lastModified = DateTime.UnixEpoch;
+        }
+
+        var fileSize = new FileInfo(path).Length;
+
+        if (fileSize > 0 && TryGetFromCache(nameSpace: nameSpace, lastModified: lastModified, fileSize: fileSize, out WowTokenPriceWithNamespace? entry))
+        {
+            return entry;
+        }
+
         await using FileStream stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         stream.Seek(0, SeekOrigin.End);
         const int bufferSize = 1 << 10;
@@ -57,7 +81,7 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
             stream.Seek(position, SeekOrigin.Begin);
             var read = await stream.ReadAsync(buffer, cancellationToken);
 
-            if (read > 0 && TryRead(buffer, read, nameSpace, out WowTokenPriceWithNamespace price, out position))
+            if (read > 0 && TryRead(buffer, read, nameSpace, fileSize, lastModified, out WowTokenPriceWithNamespace price, out position))
             {
                 return price;
             }
@@ -72,9 +96,38 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
         return null;
     }
 
+    private void UpdateCache(GameDataDynamicNameSpace nameSpace, DateTime lastModified, long fileSize, long position, WowTokenPriceWithNamespace price)
+    {
+        Debug.Assert(price.Namespace == nameSpace, "price.Namespace == nameSpace");
+        _cache.AddOrUpdate(nameSpace,
+            _ => new CachedEntry(price, GetFilePath(), fileSize, lastModified, position),
+            (space, cachedEntry) => cachedEntry.Price.LastUpdatedTimestamp > price.LastUpdatedTimestamp || space != price.Namespace
+                ? cachedEntry
+                : new CachedEntry(Price: price, Path: GetFilePath(), FileSize: fileSize, LastModified: lastModified, Position: position));
+    }
+
+    private bool TryGetFromCache(GameDataDynamicNameSpace nameSpace, DateTime lastModified, long fileSize, [NotNullWhen(true)] out WowTokenPriceWithNamespace? price)
+    {
+        if (!_cache.TryGetValue(nameSpace, out CachedEntry? entry))
+        {
+            price = null;
+            return false;
+        }
+
+        if (entry.LastModified != lastModified || entry.FileSize != fileSize || entry.Price.Namespace != nameSpace)
+        {
+            price = null;
+            return false;
+        }
+
+        price = entry.Price;
+        return true;
+    }
+
     [MustUseReturnValue]
     // ReSharper disable once RedundantNullableFlowAttribute
-    private bool TryRead(ReadOnlySpan<byte> buffer, int read, GameDataDynamicNameSpace nameSpace, [NotNullWhen(true)] out WowTokenPriceWithNamespace price, out long safePosition)
+    private bool TryRead(ReadOnlySpan<byte> buffer, int read, GameDataDynamicNameSpace nameSpace, long fileSize, DateTime lastModified,
+        [NotNullWhen(true)] out WowTokenPriceWithNamespace price, out long safePosition)
     {
         var end = read;
         for (var i = read - 1; i >= 0; i--)
@@ -115,6 +168,11 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
             {
                 item = null;
                 logger.LogError(e, "Failed to deserialize line: {Line}", Encoding.UTF8.GetString(line));
+            }
+
+            if (item is not null)
+            {
+                UpdateCache(nameSpace: nameSpace, lastModified: lastModified, fileSize: fileSize, position: i, price: item);
             }
 
             if (item?.Namespace == nameSpace)
