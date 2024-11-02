@@ -88,6 +88,11 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
 
             line = Trim(line);
 
+            if (line.IsEmpty)
+            {
+                continue;
+            }
+
             if (line[0] != '{' && line[0] != '[')
             {
                 logger.LogWarning("Failed to deserialize line: {Line}", Encoding.UTF8.GetString(line));
