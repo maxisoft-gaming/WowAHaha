@@ -172,7 +172,7 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
 
             if (item is not null)
             {
-                UpdateCache(nameSpace: nameSpace, lastModified: lastModified, fileSize: fileSize, position: i, price: item);
+                UpdateCache(nameSpace: item.Namespace, lastModified: lastModified, fileSize: fileSize, position: i, price: item);
             }
 
             if (item?.Namespace == nameSpace)
