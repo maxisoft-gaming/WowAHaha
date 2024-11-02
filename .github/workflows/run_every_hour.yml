@@ -179,7 +179,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.PROGRAM_NAME }}/bin/${{ env.dotnet-configuration }}
-          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}
+          key: ${{ runner.os }}-${{ env.PROGRAM_NAME }}-build-output-${{ env.dotnet-configuration }}-${{ hashFiles('**/*.csproj') }}-${{ hashFiles('**/*.cs') }}
 
       - name: Build
         run: |
