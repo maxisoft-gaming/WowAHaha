@@ -67,6 +67,8 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
 
         if (fileSize > 0 && TryGetFromCache(nameSpace: nameSpace, lastModified: lastModified, fileSize: fileSize, out WowTokenPriceWithNamespace? entry))
         {
+            Debug.Assert(entry.Namespace == nameSpace, "entry.Namespace == nameSpace");
+            Debug.Assert(entry.Price > 0, "entry.Price > 0");
             return entry;
         }
 
@@ -106,6 +108,7 @@ public class WowTokenPriceSerializer(ILogger<WowTokenPriceSerializer> logger) : 
                 : new CachedEntry(Price: price, Path: GetFilePath(), FileSize: fileSize, LastModified: lastModified, Position: position));
     }
 
+    [MustUseReturnValue]
     private bool TryGetFromCache(GameDataDynamicNameSpace nameSpace, DateTime lastModified, long fileSize, [NotNullWhen(true)] out WowTokenPriceWithNamespace? price)
     {
         if (!_cache.TryGetValue(nameSpace, out CachedEntry? entry))
