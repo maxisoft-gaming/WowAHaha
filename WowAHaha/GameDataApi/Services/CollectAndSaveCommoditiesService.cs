@@ -1,4 +1,5 @@
 using System.Net;
+using Maxisoft.Utils.Logic;
 using Microsoft.Extensions.Logging;
 using WowAHaha.GameDataApi.Http;
 using WowAHaha.GameDataApi.Models.Serializers;
@@ -31,13 +32,17 @@ public class CollectAndSaveCommoditiesService(
 
 
             await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var semaphoreLockTaken = new AtomicBoolean(true);
             try
             {
                 await ProcessSpace(nameSpace);
             }
             finally
             {
-                semaphore.Release();
+                if (semaphoreLockTaken.TrueToFalse())
+                {
+                    semaphore.Release();                    
+                }
             }
 
             return;
@@ -63,7 +68,7 @@ public class CollectAndSaveCommoditiesService(
                     var res = new RunningAuctionStatsBag();
 
                     DateTimeOffset lastModified = DateTimeOffset.Now;
-                    const int maxTries = 10;
+                    const int maxTries = 5;
                     for (var i = 0; i < maxTries; i++)
                     {
                         lastModified = DateTimeOffset.Now;
@@ -86,6 +91,10 @@ public class CollectAndSaveCommoditiesService(
                             }
 
                             var delay = 5000 + (1 << i) * 1000;
+                            if (semaphoreLockTaken.TrueToFalse())
+                            {
+                                semaphore.Release();
+                            }
                             logger.LogInformation("Waiting {Delay} before retrying {Space} because of too many requests", delay, space);
                             try
                             {
@@ -99,6 +108,11 @@ public class CollectAndSaveCommoditiesService(
                             if (cts.IsCancellationRequested)
                             {
                                 throw;
+                            }
+
+                            if (semaphoreLockTaken.FalseToTrue())
+                            {
+                                await semaphore.WaitAsync(cts.Token);
                             }
                         }
                     }
