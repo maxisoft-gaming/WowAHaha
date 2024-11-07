@@ -3,7 +3,7 @@ name: Run the WowAHaha project
 on:
   schedule:
     - cron: "33 * * * *"
-    - cron: "3 * * * *"
+    #- cron: "3 * * * *"
   push:
     branches:
       - main
