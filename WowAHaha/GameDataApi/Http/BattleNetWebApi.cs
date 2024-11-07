@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using JasperFx.Core.Reflection;
+using Lamar;
 using Maxisoft.Utils;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public interface IBattleNetWebApi
     Task<WowTokenPrice?> GetWowTokenPrice(GameDataDynamicNameSpace dynamicNameSpace, string locale = "auto", CancellationToken cancellationToken = default);
 }
 
+[Singleton]
 public class BattleNetWebApi(
     HttpClient client,
     IConfiguration configurationProvider,
