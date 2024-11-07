@@ -9,7 +9,7 @@ namespace WowAHaha.GameDataApi.Services;
 public class CollectAndSaveWowTokenPricesService(
     IBattleNetWebApi api,
     ProgramConfigurations programConfig,
-    ILogger<CollectAndSaveCommoditiesService> logger,
+    ILogger<CollectAndSaveWowTokenPricesService> logger,
     IWowTokenPriceSerializer serializer,
     ProgramWorkerSemaphore semaphore) : IRunnableService
 {
