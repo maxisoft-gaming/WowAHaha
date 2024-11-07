@@ -428,7 +428,7 @@ jobs:
               exit 2
             fi
           
-            if python -c "print(float($delta_percent) == 0)" | grep -q "True"; then
+            if python -c "print(float($delta_size) < 64)" | grep -q "True"; then
               echo ARCHIVE_NO_CHANGE=true >> $GITHUB_ENV
               echo "# :information_source: There's no change in the 7z file. Skipping release." >> $GITHUB_STEP_SUMMARY
             fi
