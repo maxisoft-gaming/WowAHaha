@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.Logging;
 using WowAHaha.GameDataApi.Http;
 using WowAHaha.GameDataApi.Models.Serializers;
@@ -24,7 +25,7 @@ public class CollectAndSaveCommoditiesService(
         await Parallel.ForEachAsync(Enum.GetValues<GameDataDynamicNameSpace>(), cts.Token, async (nameSpace, cancellationToken) =>
         {
 #if DEBUG
-                await Task.Delay(((int)nameSpace + 1) * 20, cancellationToken); // easy way to process dynamic namespace in order
+            await Task.Delay(((int)nameSpace + 1) * 20, cancellationToken); // easy way to process dynamic namespace in order
 
 #endif
 
@@ -59,19 +60,49 @@ public class CollectAndSaveCommoditiesService(
                     using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     cts.CancelAfter(TimeSpan.FromMinutes(5));
                     CollectAndSaveCommoditiesExecutionSummary? previousSummary = await serializer.LoadPreviousSummary(space, cts.Token).ConfigureAwait(false);
-                    RunningAuctionStatsBag res;
+                    var res = new RunningAuctionStatsBag();
 
                     DateTimeOffset lastModified = DateTimeOffset.Now;
-                    try
+                    const int maxTries = 10;
+                    for (var i = 0; i < maxTries; i++)
                     {
-                        res = await api.GetCommoditiesAuctions(space, onDateAndLastModifiedHook: OnDateAndLastModifiedHook, cancellationToken: cts.Token)
-                            .ConfigureAwait(false);
+                        lastModified = DateTimeOffset.Now;
+                        try
+                        {
+                            res = await api.GetCommoditiesAuctions(space, onDateAndLastModifiedHook: OnDateAndLastModifiedHook, cancellationToken: cts.Token)
+                                .ConfigureAwait(false);
+                        }
+                        catch (SkipContentProcessingException e)
+                        {
+                            logger.LogDebug("Skipping content processing for {Space} because of: {Message}", space, e.Message);
+                            return;
+                        }
+                        catch (HttpRequestException e) when (e.Message.StartsWith("TooManyRequests") || e.Message.StartsWith("429") ||
+                                                             e.StatusCode == HttpStatusCode.TooManyRequests)
+                        {
+                            if (i >= maxTries - 1)
+                            {
+                                throw;
+                            }
+
+                            var delay = 5000 + (1 << i) * 1000;
+                            logger.LogInformation("Waiting {Delay} before retrying {Space} because of too many requests", delay, space);
+                            try
+                            {
+                                await Task.Delay(delay, cts.Token);
+                            }
+                            catch (Exception exception) when (exception is TaskCanceledException or OperationCanceledException)
+                            {
+                                // ignore
+                            }
+
+                            if (cts.IsCancellationRequested)
+                            {
+                                throw;
+                            }
+                        }
                     }
-                    catch (SkipContentProcessingException e)
-                    {
-                        logger.LogDebug("Skipping content processing for {Space} because of: {Message}", space, e.Message);
-                        return;
-                    }
+
 
                     void OnDateAndLastModifiedHook((DateTimeOffset? Date, DateTimeOffset? LastModified) obj)
                     {

@@ -54,7 +54,6 @@ namespace WowAHaha
         static async Task Main(string[] args)
         {
             Container container = CreateContainer();
-
             var logger = container.GetInstance<ILogger<Program>>();
             var cancellationTokenSource = container.GetInstance<CancellationTokenSource>();
             Console.CancelKeyPress += (_, e) =>
@@ -132,11 +131,12 @@ namespace WowAHaha
                     configureClient.DefaultRequestHeaders.Add("User-Agent",
                         webConfig.GetValue<string>("UserAgent", null!) ?? $"{assemblyName}/{assemblyVersion?.ToString() ?? "1.0"}");
                     configureClient.DefaultRequestVersion = new Version(2, 0);
-                }).AddStandardResilienceHandler(options =>
+                });
+                /*.AddStandardResilienceHandler(options =>
                 {
                     options.TotalRequestTimeout = new HttpTimeoutStrategyOptions()
                         { Timeout = TimeSpan.FromMinutes(10) };
-                });
+                });*/
                 x.AddLogging(log =>
                 {
                     log.EnableEnrichment(configure =>
