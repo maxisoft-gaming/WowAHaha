@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WowAHaha.Tests", "WowAHaha.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WowItemVersion", "WowItemVersion\WowItemVersion.csproj", "{AA720620-A8CA-41E6-A06E-374FEAF883B7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HelperApp", "HelperApp\HelperApp.csproj", "{494733CD-1EE5-4FB2-A459-FE4C73B70FB6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AA720620-A8CA-41E6-A06E-374FEAF883B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{494733CD-1EE5-4FB2-A459-FE4C73B70FB6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{494733CD-1EE5-4FB2-A459-FE4C73B70FB6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{494733CD-1EE5-4FB2-A459-FE4C73B70FB6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{494733CD-1EE5-4FB2-A459-FE4C73B70FB6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
