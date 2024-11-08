@@ -68,7 +68,7 @@ public class CollectAndSaveCommoditiesService(
                     var res = new RunningAuctionStatsBag();
 
                     DateTimeOffset lastModified = DateTimeOffset.Now;
-                    const int maxTries = 5;
+                    const int maxTries = 16;
                     for (var i = 0; i < maxTries; i++)
                     {
                         lastModified = DateTimeOffset.Now;
@@ -90,7 +90,7 @@ public class CollectAndSaveCommoditiesService(
                                 throw;
                             }
 
-                            var delay = 5000 + (1 << i) * 1000;
+                            var delay = checked(500 + (1 << i) * 100);
                             if (semaphoreLockTaken.TrueToFalse())
                             {
                                 semaphore.Release();
