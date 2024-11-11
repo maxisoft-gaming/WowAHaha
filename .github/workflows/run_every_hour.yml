@@ -323,7 +323,7 @@ jobs:
 
       - name: Run WowAHaha
         if: env.ALLOWED_ACTOR == github.actor || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        timeout-minutes: 10
+        timeout-minutes: 30
         id: run
         run: |
           mkdir -p wd
