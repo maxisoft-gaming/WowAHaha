@@ -63,12 +63,12 @@ public class CollectAndSaveCommoditiesService(
                 try
                 {
                     using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    cts.CancelAfter(TimeSpan.FromMinutes(5));
+                    cts.CancelAfter(TimeSpan.FromMinutes(15));
                     CollectAndSaveCommoditiesExecutionSummary? previousSummary = await serializer.LoadPreviousSummary(space, cts.Token).ConfigureAwait(false);
                     var res = new RunningAuctionStatsBag();
 
                     DateTimeOffset lastModified = DateTimeOffset.Now;
-                    const int maxTries = 16;
+                    const int maxTries = 32;
                     for (var i = 0; i < maxTries; i++)
                     {
                         lastModified = DateTimeOffset.Now;
@@ -83,14 +83,16 @@ public class CollectAndSaveCommoditiesService(
                             return;
                         }
                         catch (HttpRequestException e) when (e.Message.StartsWith("TooManyRequests") || e.Message.StartsWith("429") ||
-                                                             e.StatusCode == HttpStatusCode.TooManyRequests)
+                                                             e.StatusCode == HttpStatusCode.TooManyRequests || 
+                                                             ((int)(e.StatusCode ?? 0) >= 500 && (int)(e.StatusCode ?? 0) < 600))
                         {
                             if (i >= maxTries - 1)
                             {
                                 throw;
                             }
 
-                            var delay = checked(500 + (1 << i) * 100);
+                            var delay = checked(50 + (1 << i) * 50);
+                            delay = int.Clamp(delay, 50, 2_000);
                             if (semaphoreLockTaken.TrueToFalse())
                             {
                                 semaphore.Release();
