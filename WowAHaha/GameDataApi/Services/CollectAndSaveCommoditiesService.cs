@@ -68,7 +68,7 @@ public class CollectAndSaveCommoditiesService(
                     var res = new RunningAuctionStatsBag();
 
                     DateTimeOffset lastModified = DateTimeOffset.Now;
-                    const int maxTries = 32;
+                    const int maxTries = 50;
                     for (var i = 0; i < maxTries; i++)
                     {
                         lastModified = DateTimeOffset.Now;
@@ -91,8 +91,8 @@ public class CollectAndSaveCommoditiesService(
                                 throw;
                             }
 
-                            var delay = checked(50 + (1 << i) * 50);
-                            delay = int.Clamp(delay, 50, 2_000);
+                            var delay = checked(50L + (1L << i) * 50L);
+                            delay = long.Clamp(delay, 50, 2_000);
                             if (semaphoreLockTaken.TrueToFalse())
                             {
                                 semaphore.Release();
@@ -100,7 +100,7 @@ public class CollectAndSaveCommoditiesService(
                             logger.LogInformation("Waiting {Delay} before retrying {Space} because of too many requests", delay, space);
                             try
                             {
-                                await Task.Delay(delay, cts.Token);
+                                await Task.Delay(checked((int)delay), cts.Token);
                             }
                             catch (Exception exception) when (exception is TaskCanceledException or OperationCanceledException)
                             {
