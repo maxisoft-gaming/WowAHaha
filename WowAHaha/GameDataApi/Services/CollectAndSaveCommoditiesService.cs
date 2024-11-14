@@ -68,7 +68,7 @@ public class CollectAndSaveCommoditiesService(
                     var res = new RunningAuctionStatsBag();
 
                     DateTimeOffset lastModified = DateTimeOffset.Now;
-                    const int maxTries = 50;
+                    const int maxTries = 60;
                     for (var i = 0; i < maxTries; i++)
                     {
                         lastModified = DateTimeOffset.Now;
@@ -76,6 +76,10 @@ public class CollectAndSaveCommoditiesService(
                         {
                             res = await api.GetCommoditiesAuctions(space, onDateAndLastModifiedHook: OnDateAndLastModifiedHook, cancellationToken: cts.Token)
                                 .ConfigureAwait(false);
+                            if (res is { Count: > 0, AuctionsStats.Count: > 0 })
+                            {
+                                break;
+                            }
                         }
                         catch (SkipContentProcessingException e)
                         {
@@ -91,13 +95,13 @@ public class CollectAndSaveCommoditiesService(
                                 throw;
                             }
 
-                            var delay = checked(50L + (1L << i) * 50L);
+                            var delay = checked(50L + (1L << i));
                             delay = long.Clamp(delay, 50, 2_000);
                             if (semaphoreLockTaken.TrueToFalse())
                             {
                                 semaphore.Release();
                             }
-                            logger.LogInformation("Waiting {Delay} before retrying {Space} because of too many requests", delay, space);
+                            logger.LogInformation("Waiting {Delay} before retrying {Space} because of {Message}", delay, space, e.Message);
                             try
                             {
                                 await Task.Delay(checked((int)delay), cts.Token);
