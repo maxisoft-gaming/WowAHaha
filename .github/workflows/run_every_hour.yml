@@ -444,13 +444,13 @@ jobs:
 
       - name: Attest Build Provenance of csv files
         if: env.SKIP_BUILD_ATTESTATION != 'true' && env.ARCHIVE_NO_CHANGE != 'true' && github.event_name != 'schedule' # disable on schedule to speed up
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-path: 'wd/*'
 
       - name: Attest Build Provenance the archive 7z file
         if: env.SKIP_BUILD_ATTESTATION != 'true' && env.ARCHIVE_NO_CHANGE != 'true'
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-path: "${{ steps.csv_7z.outputs.sevenzip_file_name }}"
 
