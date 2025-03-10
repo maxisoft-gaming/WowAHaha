@@ -41,7 +41,7 @@ on:
       - main
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
-  dotnet-version: '8.0.x'
+  dotnet-version: '9.0.x'
   dotnet-configuration: Release
   DOTNET_NOLOGO: true
   PROGRAM_NAME: WowAHaha
@@ -52,12 +52,14 @@ env:
   SKIP_BUILD_ATTEST: false
   FAST_RELEASE: false # set to true to skip cache, hash and attest-build-provenance
   USE_WORKING_DIR_CACHE: false
-  SEVENZIP_FLAGS: '-mx=6 -xr!*.7z -xr!*.zip'
+  SEVENZIP_FLAGS: '-mx=2 -md=64m -xr!*.7z -xr!*.zip'
   FIRST_RUN: false # set to true in case no previous files was build
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.actor }}"
   cancel-in-progress: false
+  
+
 
 jobs:
   run-every-hour:
