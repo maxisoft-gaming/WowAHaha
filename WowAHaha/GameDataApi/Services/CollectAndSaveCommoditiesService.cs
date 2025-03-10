@@ -50,12 +50,13 @@ public class CollectAndSaveCommoditiesService(
             // ReSharper disable once VariableHidesOuterVariable
             async ValueTask ProcessSpace(GameDataDynamicNameSpace space)
             {
+                // ReSharper disable once ConvertIfStatementToSwitchStatement
                 if (space is GameDataDynamicNameSpace.None)
                 {
                     return;
                 }
 
-                if (programConfig.IgnoreChina && space is GameDataDynamicNameSpace.CN)
+                if (space is GameDataDynamicNameSpace.CN && programConfig.IgnoreChina)
                 {
                     return;
                 }
