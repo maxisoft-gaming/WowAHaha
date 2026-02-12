@@ -17,6 +17,7 @@ public enum WowExpansion
     Shadowlands = 9,
     Dragonflight = 10,
     TheWarWithin = 11,
+    Midnight = 12,
 
-    Latest = 11 // point to latest expansion
+    Latest = 12 // point to latest expansion
 }

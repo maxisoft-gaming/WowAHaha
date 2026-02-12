@@ -50,7 +50,7 @@ static Dictionary<long, WowExpansion> ExtractExpansionDictionary(DynValue? resul
         DynValue? major = value.Table.Get("major");
         if (major?.Type is not DataType.Number)
         {
-            throw new InvalidOperationException($"Invalid lua result, expected number, got {major.Type}");
+            throw new InvalidOperationException($"Invalid lua result, expected number, got {(major == null ? "null" : major.Type.ToString())}");
         }
 
         var expansion = (WowExpansion)major.Number;
@@ -105,9 +105,37 @@ static Dictionary<long, WowExpansion> ExtractExpansionDictionary(DynValue? resul
 
 Assembly assembly = typeof(Program).Assembly;
 var assemblyName = assembly.GetName().Name;
-var resourceName = $"{assemblyName}.ItemVersionAddon.ItemVersion.Data.lua";
-await using Stream? stream = assembly.GetManifestResourceStream(resourceName);
-if (stream is null)
+
+// Initialize the MoonSharp Script environment
+Script script = new Script();
+
+// Dummy LibStub and AceLocale for MoonSharp environment
+// This emulates the WoW addon environment minimally for data extraction.
+script.Globals["LibStub"] = DynValue.FromObject(script, new CallbackFunction((ctx, args) =>
+{
+    var libName = args[1].String;
+    if (libName == "AceLocale-3.0")
+    {
+        var localeTable = new Table(script);
+        // __index metamethod to return the key itself
+        localeTable.MetaTable = new Table(script);
+        localeTable.MetaTable.Set("__index", DynValue.NewCallback((innerCtx, innerArgs) =>
+        {
+            // innerArgs[0] is the table itself, innerArgs[1] is the key
+            return innerArgs[1]; // Return the key as the value
+        }));
+
+        // The GetLocale function needs to return this localeTable
+        // The outer CallbackFunction is for LibStub, which returns a function for GetLocale
+        return DynValue.NewCallback((innerCtx, innerArgs) => DynValue.NewTable(localeTable));
+    }
+    return DynValue.NewNil();
+}));
+
+// --- Load and execute Data.lua ---
+var dataResourceName = $"{assemblyName}.ItemVersionAddon.ItemVersion.Data.lua";
+await using Stream? dataStream = assembly.GetManifestResourceStream(dataResourceName);
+if (dataStream is null)
 {
     Console.Error.WriteLine("Resource not found, please check the name of the resource !");
     Console.Error.WriteLine("Here's the list of available resources:");
@@ -116,30 +144,31 @@ if (stream is null)
         Console.Error.WriteLine("- " + resource);
     }
 
-    throw new InvalidOperationException($"Resource {resourceName} not found in assembly {assemblyName}");
+    throw new InvalidOperationException($"Resource {dataResourceName} not found in assembly {assemblyName}");
 }
 
-using var reader = new StreamReader(stream);
-var content = await reader.ReadToEndAsync();
+using var dataReader = new StreamReader(dataStream);
+var dataContent = await dataReader.ReadToEndAsync();
 
-if (content.Length < 1 << 10)
+if (dataContent.Length < 1 << 10)
 {
-    throw new InvalidOperationException($"Resource {resourceName} is empty");
+    throw new InvalidOperationException($"Resource {dataResourceName} is empty");
 }
 
-content = $$"""
+// Wrap Data.lua content to get AddonTable
+dataContent = $$"""
             return (function ()
               local AddonTable = {["injected"] = true}
               (function(...)
               
-                {{content}}
+                {{dataContent}}
                 
                 
               end)(AddonTable, AddonTable)
               return AddonTable
             end)()
             """;
-DynValue? result = Script.RunString(content);
+DynValue? result = Script.RunString(dataContent);
 
 Dictionary<long, WowExpansion> rawExpansions = ExtractExpansionDictionary(result);
 
@@ -204,7 +233,8 @@ public enum WowExpansion
     Shadowlands = 9,
     Dragonflight = 10,
     TheWarWithin = 11,
+    Midnight = 12,
 
-    Latest = 11 // point to latest expansion
+    Latest = 12 // point to latest expansion
 }
 
