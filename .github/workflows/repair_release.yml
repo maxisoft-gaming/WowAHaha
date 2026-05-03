@@ -40,8 +40,6 @@ jobs:
       actions: read
 
     steps:
-      # All Python steps use only stdlib — no pip install needed, keeps action hermetic.
-
       - name: Analyze failure and decide whether to repair
         id: analyze
         shell: python
@@ -141,8 +139,6 @@ jobs:
           most_recent_id         = most_recent.get('id')
           most_recent_status     = most_recent.get('status')
           most_recent_conclusion = most_recent.get('conclusion')
-          # updated_at = when the run *finished*, not when it was queued — avoids
-          # triggering repair while the run is still in its failure grace period.
           most_recent_updated    = most_recent.get('updated_at', '')
           most_recent_url        = most_recent.get('html_url', '')
 
@@ -189,22 +185,39 @@ jobs:
               )
 
           # ── 3. Fetch latest release and check for the expected archive ────────
-          # Use /releases/latest so we always track the actual live tag and don't
-          # need to reconstruct it ourselves (avoids month-boundary off-by-one).
           summary('\n## Step 3 — Check release and archive presence\n')
           try:
-              release_data = gh_get('releases/latest')
+              releases_data = gh_get('releases?per_page=20')
           except urllib.error.HTTPError as exc:
               body = getattr(exc, 'gh_body', '')
-              if exc.code == 404:
-                  summary(':information_source: No releases found — expected on brand-new repos.')
-                  bail('No releases exist yet. Nothing to repair.')
-              summary(f':x: GitHub API error fetching latest release: `{exc.code} {exc.reason}`')
+              summary(f':x: GitHub API error fetching releases: `{exc.code} {exc.reason}`')
               summary(f'```\n{body[:800]}\n```')
-              bail(f'Cannot fetch latest release (HTTP {exc.code}).', exit_code=1)
+              bail(f'Cannot fetch releases (HTTP {exc.code}).', exit_code=1)
           except Exception:
               summary(f':x: Unexpected error:\n```\n{traceback.format_exc()}\n```')
-              bail('Unexpected error fetching release.', exit_code=1)
+              bail('Unexpected error fetching releases.', exit_code=1)
+
+          if not releases_data:
+              summary(':information_source: No releases found — expected on brand-new repos.')
+              bail('No releases exist yet. Nothing to repair.')
+
+          # Filter out drafts and sort robustly to find the true latest release
+          valid_releases = [r for r in releases_data if not r.get('draft')]
+          if not valid_releases:
+              bail('No published releases found. Nothing to repair.')
+          
+          def get_release_sort_key(r):
+              tag = r.get('tag_name', '')
+              try:
+                  # Parse 'csv2026.10' -> (2026, 10) to ensure 10 > 5 numerically
+                  y, m = map(int, tag.lstrip('csv').split('.'))
+                  return (y, m, r.get('published_at') or '')
+              except Exception:
+                  return (0, 0, r.get('published_at') or '')
+
+          valid_releases.sort(key=get_release_sort_key, reverse=True)
+          
+          release_data = valid_releases[0]
 
           latest_tag  = release_data['tag_name']
           release_id  = release_data['id']
@@ -212,46 +225,45 @@ jobs:
           assets      = release_data.get('assets', [])
           asset_names = [a['name'] for a in assets]
 
-          # Derive the expected archive name.
-          #
-          # The main workflow's tag looks like  csv2026.5  (csvYYYY.M, no zero-pad)
-          # but the archive filename uses        wow_ah_csv_2026_05.7z (YYYY_MM, zero-padded)
-          # which comes from strftime('%Y_%m').
-          #
-          # Strategy (in order of preference):
-          #   1. If a .7z asset already exists in the release, use its name — handles
-          #      the common bug scenario where the asset was uploaded then silently removed.
-          #   2. Strip the leading "csv" from the tag and replace "." with "_" to get
-          #      the YYYY_MM suffix that the main workflow uses.
-          #   3. Fall back to deriving from the current UTC date.
+          target_year = None
+          target_month = None
+          
           existing_7z = next(
               (n for n in asset_names if n.startswith(RELEASE_CSV_PREFIX) and n.endswith('.7z')),
               None,
           )
+          
           if existing_7z:
               expected_archive_name = existing_7z
+              # Still try to parse tag for Step 4 artifact filtering
+              tag_suffix = latest_tag.lstrip('csv')
+              try:
+                  y_str, m_str = tag_suffix.split('.')
+                  target_year = int(y_str)
+                  target_month = int(m_str)
+              except Exception:
+                  pass
           else:
               # Convert tag "csv2026.5" → "2026_5" → pad month → "2026_05"
-              tag_suffix = latest_tag.lstrip('csv')            # "2026.5"
+              tag_suffix = latest_tag.lstrip('csv')
               try:
-                  year_str, month_str = tag_suffix.split('.')  # "2026", "5"
-                  year_month = f'{int(year_str):04d}_{int(month_str):02d}'  # "2026_05"
+                  year_str, month_str = tag_suffix.split('.')
+                  target_year = int(year_str)
+                  target_month = int(month_str)
+                  year_month = f'{target_year:04d}_{target_month:02d}'
               except (ValueError, AttributeError) as exc:
-                  print(
-                      f'Warning: could not parse tag "{latest_tag}" ({exc}); '
-                      'falling back to current UTC date.',
-                      file=sys.stderr,
-                  )
-                  summary(
-                      f':warning: Could not parse tag `{latest_tag}` to derive archive name: {exc}. '
-                      'Using current UTC date as fallback.'
-                  )
+                  print(f'Warning: could not parse tag "{latest_tag}" ({exc})', file=sys.stderr)
+                  summary(f':warning: Could not parse tag `{latest_tag}` to derive archive name: {exc}. '
+                          'Using current UTC date as fallback.')
+                  target_year = now.year
+                  target_month = now.month
                   year_month = now.strftime('%Y_%m')
               expected_archive_name = f'{RELEASE_CSV_PREFIX}{year_month}.7z'
 
           summary(f'| Field | Value |')
           summary(f'|-------|-------|')
           summary(f'| Tag | [`{latest_tag}`]({release_url}) |')
+          summary(f'| Target Y/M | `{target_year}-{target_month}` |')
           summary(f'| Release ID | `{release_id}` |')
           summary(f'| Expected archive | `{expected_archive_name}` |')
           summary(f'| Current assets | `{asset_names or "(none)"}` |')
@@ -270,24 +282,29 @@ jobs:
           for run in runs:
               if run.get('conclusion') != 'success':
                   continue
+          
               run_id  = run['id']
               run_url = run.get('html_url', '')
+          
+              # STRICT FILTERING: Ensure the artifact belongs to the target month
+              if target_year and target_month:
+                  run_created = run.get('created_at', '')
+                  try:
+                      run_dt = datetime.strptime(run_created, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+                      if run_dt.year != target_year or run_dt.month != target_month:
+                          summary(f'- :fast_forward: Run [`#{run_id}`]({run_url}) is from `{run_dt.strftime("%Y-%m")}` (mismatches target release `{target_year:04d}-{target_month:02d}`). Skipping cross-month contamination.')
+                          continue
+                  except Exception as e:
+                      print(f'Warning: could not parse run date {run_created}: {e}', file=sys.stderr)
+
               try:
                   arts_data = gh_get(f'actions/runs/{run_id}/artifacts')
               except urllib.error.HTTPError as exc:
                   body = getattr(exc, 'gh_body', '')
-                  summary(
-                      f'- :warning: Could not fetch artifacts for run '
-                      f'[`#{run_id}`]({run_url}): HTTP {exc.code} — `{body[:200]}`'
-                  )
-                  print(f'Warning: artifacts fetch failed for run {run_id}: {exc.code} {body}', file=sys.stderr)
+                  summary(f'- :warning: Could not fetch artifacts for run [`#{run_id}`]({run_url}): HTTP {exc.code} — `{body[:200]}`')
                   continue
               except Exception:
-                  summary(
-                      f'- :warning: Unexpected error for run `#{run_id}`:\n'
-                      f'```\n{traceback.format_exc()}\n```'
-                  )
-                  print(traceback.format_exc(), file=sys.stderr)
+                  summary(f'- :warning: Unexpected error for run `#{run_id}`:\n```\n{traceback.format_exc()}\n```')
                   continue
 
               for art in arts_data.get('artifacts', []):
@@ -310,8 +327,8 @@ jobs:
 
           if not artifact_run_id:
               bail(
-                  ':x: Could not find any recent successful run with a live `WowAHaha_csv` artifact. '
-                  'All artifacts may be expired or no successful run exists yet. Cannot repair.',
+                  ':x: Could not find any recent successful run with a live `WowAHaha_csv` artifact matching this month. '
+                  'All artifacts may be expired, or no successful run exists yet for this month. Cannot repair.',
                   exit_code=1,
               )
 
@@ -364,22 +381,9 @@ jobs:
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
                   fh.write(msg + '\n')
 
-          # ── Step 1: ask GitHub for the redirect URL, do NOT follow it ─────────
-          #
-          # The GitHub artifact download endpoint returns a 302 redirect to an
-          # Azure Blob Storage URL that already contains a pre-signed SAS token.
-          # If you forward the GitHub Authorization header to Azure, Azure rejects
-          # it with 401/403 (two auth schemes conflict).  The correct pattern is:
-          #   1. GET api.github.com/…/zip  with GitHub auth  → 302 + Location header
-          #   2. GET <Location URL>         WITHOUT any auth  → 200 + zip body
-          #
-          # urllib.request.urlopen follows redirects automatically and carries all
-          # headers along, which breaks step 2.  We therefore disable redirect
-          # following for the first request via a custom handler.
-
           class NoRedirect(urllib.request.HTTPRedirectHandler):
               def redirect_request(self, req, fp, code, msg, headers, newurl):
-                  return None  # refuse to follow; urlopen will raise HTTPError(30x)
+                  return None
 
           gh_opener = urllib.request.build_opener(NoRedirect)
 
@@ -394,10 +398,9 @@ jobs:
           blob_url = None
           try:
               gh_opener.open(api_req)
-              # If we somehow get a 200 here (unexpected), read it directly
               print('WARNING: expected a redirect but got 200; trying to use response directly.', file=sys.stderr)
               summary(':warning: Expected redirect from GitHub but got 200. Will attempt direct read.')
-              blob_url = api_url  # fallback — probably won't work but worth trying
+              blob_url = api_url 
           except urllib.error.HTTPError as exc:
               if exc.code in (301, 302, 303, 307, 308):
                   blob_url = exc.headers.get('Location')
@@ -406,27 +409,21 @@ jobs:
                   body = exc.read().decode(errors='replace')
                   summary(f':x: GitHub API error getting artifact URL: HTTP `{exc.code} {exc.reason}`')
                   summary(f'```\n{body[:800]}\n```')
-                  print(f'GitHub API error: {exc.code} {exc.reason}\n{body}', file=sys.stderr)
                   sys.exit(1)
           except Exception:
               summary(f':x: Unexpected error fetching artifact redirect:\n```\n{traceback.format_exc()}\n```')
-              print(traceback.format_exc(), file=sys.stderr)
               sys.exit(1)
 
           if not blob_url:
-              summary(':x: No Location header in redirect response. Cannot download artifact.')
-              print('No Location header received.', file=sys.stderr)
               sys.exit(1)
 
-          # ── Step 2: download from the pre-signed Azure Blob URL ───────────────
-          # No Authorization header — the URL is already authenticated via SAS token.
           os.makedirs('artifact_download', exist_ok=True)
           dest = 'artifact_download/WowAHaha_csv.zip'
 
           print(f'Downloading from blob URL → {dest} …', flush=True)
-          CHUNK = 1024 * 1024  # 1 MB chunks — zip can be 300+ MB
+          CHUNK = 1024 * 1024
           try:
-              blob_req = urllib.request.Request(blob_url)  # no auth headers
+              blob_req = urllib.request.Request(blob_url)
               with urllib.request.urlopen(blob_req) as resp, open(dest, 'wb') as fh:
                   downloaded = 0
                   while True:
@@ -438,13 +435,10 @@ jobs:
                       print(f'  … {downloaded / (1024 * 1024):.1f} MB received', flush=True)
           except urllib.error.HTTPError as exc:
               body = exc.read().decode(errors='replace')
-              summary(f':x: Blob download failed: HTTP `{exc.code} {exc.reason}`')
-              summary(f'```\n{body[:500]}\n```')
-              print(f'Blob download failed: {exc.code} {exc.reason}\n{body}', file=sys.stderr)
+              summary(f':x: Blob download failed: HTTP `{exc.code} {exc.reason}`\n```\n{body[:500]}\n```')
               sys.exit(1)
           except Exception:
               summary(f':x: Unexpected download error:\n```\n{traceback.format_exc()}\n```')
-              print(traceback.format_exc(), file=sys.stderr)
               sys.exit(1)
 
           size_mb = os.path.getsize(dest) / (1024 * 1024)
@@ -452,7 +446,6 @@ jobs:
 
           if size_mb < 1.0:
               summary(f':x: Downloaded file is suspiciously small ({size_mb:.2f} MB) — likely an error response.')
-              print('Downloaded artifact is too small.', file=sys.stderr)
               sys.exit(1)
 
           summary(f'\n- :inbox_tray: Downloaded artifact zip: `{dest}` ({size_mb:.2f} MB)')
@@ -471,23 +464,19 @@ jobs:
           unzip -q -o artifact_download/WowAHaha_csv.zip -d wd_repaired
           echo "Extraction done."
 
-          # Remove any nested archives that may have been packaged inside the artifact
           find wd_repaired -name '*.7z' -delete
           find wd_repaired -name '*.zip' -delete
 
-          # Validate: must contain CSV files
           csv_count=$(find wd_repaired -name '*.csv' | wc -l)
           jsonl_count=$(find wd_repaired -name '*.jsonl' | wc -l)
           echo "- CSV files: **${csv_count}**" >> $GITHUB_STEP_SUMMARY
           echo "- JSONL files: **${jsonl_count}**" >> $GITHUB_STEP_SUMMARY
-          echo "CSV: ${csv_count}, JSONL: ${jsonl_count}"
 
           if [ "${csv_count}" -eq 0 ]; then
             echo "::error::No CSV files found in extracted artifact — corrupt or wrong artifact?"
             exit 1
           fi
 
-          # Collapsible file listing
           {
             echo "<details><summary>Extracted file listing</summary>"
             echo ""
@@ -502,14 +491,12 @@ jobs:
 
           echo "Creating ${EXPECTED_ARCHIVE_NAME}…"
           pushd wd_repaired
-          # SC2086: word-split is intentional — SEVENZIP_FLAGS contains multiple flags
           # shellcheck disable=SC2086
           7z a ${{ env.SEVENZIP_FLAGS }} "../${EXPECTED_ARCHIVE_NAME}" *
           popd
 
           archive_size=$(wc -c < "${EXPECTED_ARCHIVE_NAME}")
           archive_size_human=$(ls -lh "${EXPECTED_ARCHIVE_NAME}" | awk '{print $5}')
-          echo "Archive: ${EXPECTED_ARCHIVE_NAME} — ${archive_size_human} (${archive_size} bytes)"
           echo "- :package: Created \`${EXPECTED_ARCHIVE_NAME}\` (${archive_size_human})" >> $GITHUB_STEP_SUMMARY
 
           if [ "${archive_size}" -lt 50000 ]; then
@@ -577,17 +564,14 @@ jobs:
 
           summary('\n## :arrow_up: Upload\n')
 
-          # 1. Delete any stale (possibly zero-byte) asset with the same name
           try:
               assets = gh_get(f'releases/{RELEASE_ID}/assets')
           except urllib.error.HTTPError as exc:
               body = getattr(exc, 'gh_body', '')
               summary(f':x: Could not list release assets: HTTP {exc.code}\n```\n{body}\n```')
-              print(f'Failed to list assets: {exc.code}\n{body}', file=sys.stderr)
               sys.exit(1)
           except Exception:
               summary(f':x: Unexpected error listing assets:\n```\n{traceback.format_exc()}\n```')
-              print(traceback.format_exc(), file=sys.stderr)
               sys.exit(1)
 
           for asset in assets:
@@ -600,11 +584,8 @@ jobs:
                       summary(f'- :wastebasket: Deleted stale asset `{ARCHIVE_NAME}` (id=`{asset_id}`)')
                   except urllib.error.HTTPError as exc:
                       body = getattr(exc, 'gh_body', '')
-                      # Non-fatal: proceed; GitHub may accept the upload anyway
                       summary(f':warning: Could not delete stale asset (HTTP {exc.code}): `{body[:300]}`')
-                      print(f'Warning: delete failed: {exc.code} {body}', file=sys.stderr)
 
-          # 2. Upload the new archive, streaming from disk to avoid ~300 MB in RAM
           archive_size = os.path.getsize(ARCHIVE_NAME)
           size_mb      = archive_size / (1024 * 1024)
           upload_url   = (
@@ -633,11 +614,9 @@ jobs:
           except urllib.error.HTTPError as exc:
               body = exc.read().decode(errors='replace')
               summary(f':x: Upload failed: HTTP `{exc.code} {exc.reason}`\n```\n{body[:800]}\n```')
-              print(f'Upload failed: {exc.code} {exc.reason}\n{body}', file=sys.stderr)
               sys.exit(1)
           except Exception:
               summary(f':x: Unexpected upload error:\n```\n{traceback.format_exc()}\n```')
-              print(traceback.format_exc(), file=sys.stderr)
               sys.exit(1)
 
           asset_id = result.get('id')
