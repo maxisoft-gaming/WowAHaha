@@ -21,9 +21,6 @@
         <EmbeddedResource Include="ItemVersionAddon\ItemVersion\Data.lua">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </EmbeddedResource>
-        <EmbeddedResource Include="ItemVersionAddon\ItemVersion\Community.lua">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </EmbeddedResource>
     </ItemGroup>
 
     <ItemGroup>
