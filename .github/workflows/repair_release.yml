@@ -40,6 +40,8 @@ jobs:
       actions: read
 
     steps:
+      # All Python steps use only stdlib — no pip install needed, keeps action hermetic.
+
       - name: Analyze failure and decide whether to repair
         id: analyze
         shell: python
@@ -70,6 +72,10 @@ jobs:
                   fh.write(f'{key}={value}\n')
 
           def bail(reason: str, *, exit_code: int = 0) -> None:
+              """Write reason to stderr + summary, set should_repair=false, exit.
+              exit_code=0  → expected no-op (nothing to repair, step stays green)
+              exit_code!=0 → unexpected error (step turns red)
+              """
               print(f'[bail] {reason}', file=sys.stderr)
               summary(f'\n> **Result:** {reason}')
               set_output('should_repair', 'false')
@@ -90,6 +96,7 @@ jobs:
           }
 
           def gh_get(path: str) -> dict:
+              """GET https://api.github.com/repos/{REPO}/{path}. Raises HTTPError on non-2xx."""
               url = f'https://api.github.com/repos/{REPO}/{path}'
               req = urllib.request.Request(url, headers=GH_HEADERS)
               try:
@@ -114,7 +121,9 @@ jobs:
           # ── 1. Inspect recent workflow runs ───────────────────────────────────
           summary('## Step 1 — Inspect recent workflow runs\n')
           try:
-              runs_data = gh_get(f'actions/workflows/{MONITORED_WORKFLOW}/runs?per_page=20&branch=main')
+              runs_data = gh_get(
+                  f'actions/workflows/{MONITORED_WORKFLOW}/runs?per_page=20&branch=main'
+              )
           except urllib.error.HTTPError as exc:
               body = getattr(exc, 'gh_body', '')
               summary(f':x: GitHub API error fetching runs: `{exc.code} {exc.reason}`')
@@ -126,12 +135,14 @@ jobs:
 
           runs = runs_data.get('workflow_runs', [])
           if not runs:
-              bail(':information_source: No workflow runs found for this workflow. Nothing to repair.')
+              bail(':information_source: No workflow runs found. Nothing to repair.')
 
           most_recent            = runs[0]
           most_recent_id         = most_recent.get('id')
           most_recent_status     = most_recent.get('status')
           most_recent_conclusion = most_recent.get('conclusion')
+          # updated_at = when the run *finished*, not when it was queued — avoids
+          # triggering repair while the run is still in its failure grace period.
           most_recent_updated    = most_recent.get('updated_at', '')
           most_recent_url        = most_recent.get('html_url', '')
 
@@ -160,7 +171,10 @@ jobs:
                   most_recent_updated, '%Y-%m-%dT%H:%M:%SZ'
               ).replace(tzinfo=timezone.utc)
           except ValueError as exc:
-              summary(f':warning: Could not parse `updated_at` (`{most_recent_updated}`): {exc}.')
+              summary(
+                  f':warning: Could not parse `updated_at` (`{most_recent_updated}`): {exc}. '
+                  'Treating as just-failed (will not pass age gate unless forced).'
+              )
               print(f'Warning: updated_at parse failed: {exc}', file=sys.stderr)
               fail_time = now
 
@@ -169,9 +183,14 @@ jobs:
           summary(f'- Force repair override: `{force_repair}`')
 
           if not force_repair and failure_age_hours < MIN_FAILURE_AGE_HOURS:
-              bail(f':hourglass: Failure is only {failure_age_hours:.1f}h old (< {MIN_FAILURE_AGE_HOURS}h). Waiting before attempting repair.')
+              bail(
+                  f':hourglass: Failure is only {failure_age_hours:.1f}h old '
+                  f'(< {MIN_FAILURE_AGE_HOURS}h). Waiting before attempting repair.'
+              )
 
-          # ── 3. Fetch latest release and check for missing archive ─────────────
+          # ── 3. Fetch latest release and check for the expected archive ────────
+          # Use /releases/latest so we always track the actual live tag and don't
+          # need to reconstruct it ourselves (avoids month-boundary off-by-one).
           summary('\n## Step 3 — Check release and archive presence\n')
           try:
               release_data = gh_get('releases/latest')
@@ -193,11 +212,42 @@ jobs:
           assets      = release_data.get('assets', [])
           asset_names = [a['name'] for a in assets]
 
-          # FIXED: Fallback uses `latest_tag` rather than the potentially out-of-sync system clock.
-          expected_archive_name = next(
-              (name for name in asset_names if name.startswith(RELEASE_CSV_PREFIX) and name.endswith('.7z')),
-              f'{RELEASE_CSV_PREFIX}{latest_tag}.7z',
+          # Derive the expected archive name.
+          #
+          # The main workflow's tag looks like  csv2026.5  (csvYYYY.M, no zero-pad)
+          # but the archive filename uses        wow_ah_csv_2026_05.7z (YYYY_MM, zero-padded)
+          # which comes from strftime('%Y_%m').
+          #
+          # Strategy (in order of preference):
+          #   1. If a .7z asset already exists in the release, use its name — handles
+          #      the common bug scenario where the asset was uploaded then silently removed.
+          #   2. Strip the leading "csv" from the tag and replace "." with "_" to get
+          #      the YYYY_MM suffix that the main workflow uses.
+          #   3. Fall back to deriving from the current UTC date.
+          existing_7z = next(
+              (n for n in asset_names if n.startswith(RELEASE_CSV_PREFIX) and n.endswith('.7z')),
+              None,
           )
+          if existing_7z:
+              expected_archive_name = existing_7z
+          else:
+              # Convert tag "csv2026.5" → "2026_5" → pad month → "2026_05"
+              tag_suffix = latest_tag.lstrip('csv')            # "2026.5"
+              try:
+                  year_str, month_str = tag_suffix.split('.')  # "2026", "5"
+                  year_month = f'{int(year_str):04d}_{int(month_str):02d}'  # "2026_05"
+              except (ValueError, AttributeError) as exc:
+                  print(
+                      f'Warning: could not parse tag "{latest_tag}" ({exc}); '
+                      'falling back to current UTC date.',
+                      file=sys.stderr,
+                  )
+                  summary(
+                      f':warning: Could not parse tag `{latest_tag}` to derive archive name: {exc}. '
+                      'Using current UTC date as fallback.'
+                  )
+                  year_month = now.strftime('%Y_%m')
+              expected_archive_name = f'{RELEASE_CSV_PREFIX}{year_month}.7z'
 
           summary(f'| Field | Value |')
           summary(f'|-------|-------|')
@@ -226,10 +276,18 @@ jobs:
                   arts_data = gh_get(f'actions/runs/{run_id}/artifacts')
               except urllib.error.HTTPError as exc:
                   body = getattr(exc, 'gh_body', '')
-                  summary(f'- :warning: Could not fetch artifacts for run [`#{run_id}`]({run_url}): HTTP {exc.code} — `{body[:200]}`')
+                  summary(
+                      f'- :warning: Could not fetch artifacts for run '
+                      f'[`#{run_id}`]({run_url}): HTTP {exc.code} — `{body[:200]}`'
+                  )
+                  print(f'Warning: artifacts fetch failed for run {run_id}: {exc.code} {body}', file=sys.stderr)
                   continue
               except Exception:
-                  summary(f'- :warning: Unexpected error fetching artifacts for run `#{run_id}`:\n```\n{traceback.format_exc()}\n```')
+                  summary(
+                      f'- :warning: Unexpected error for run `#{run_id}`:\n'
+                      f'```\n{traceback.format_exc()}\n```'
+                  )
+                  print(traceback.format_exc(), file=sys.stderr)
                   continue
 
               for art in arts_data.get('artifacts', []):
@@ -238,18 +296,24 @@ jobs:
                   if art.get('expired', False):
                       summary(f'- :hourglass: Artifact in run [`#{run_id}`]({run_url}) is expired. Skipping.')
                       break
-          
                   artifact_run_id = run_id
                   artifact_id     = art['id']
                   art_size_mb     = art.get('size_in_bytes', 0) / (1024 * 1024)
-                  summary(f'- :white_check_mark: Found `{ARTIFACT_NAME}` in run [`#{run_id}`]({run_url}) (id=`{artifact_id}`, size≈{art_size_mb:.1f} MB)')
+                  summary(
+                      f'- :white_check_mark: Found `{ARTIFACT_NAME}` in run [`#{run_id}`]({run_url}) '
+                      f'(id=`{artifact_id}`, size≈{art_size_mb:.1f} MB)'
+                  )
                   break
 
               if artifact_run_id:
                   break
 
           if not artifact_run_id:
-              bail(':x: Could not find any recent successful run with a live `WowAHaha_csv` artifact. Cannot repair.', exit_code=1)
+              bail(
+                  ':x: Could not find any recent successful run with a live `WowAHaha_csv` artifact. '
+                  'All artifacts may be expired or no successful run exists yet. Cannot repair.',
+                  exit_code=1,
+              )
 
           summary(f'\n**Decision: REPAIR REQUIRED**')
           if dry_run:
@@ -262,7 +326,7 @@ jobs:
           set_output('latest_tag',            latest_tag)
           set_output('expected_archive_name', expected_archive_name)
 
-      # ── Repair steps ──────────────────────────────────────────────────────────
+      # ── Repair steps ─────────────────────────────────────────────────────────
 
       - name: Log repair plan
         if: steps.analyze.outputs.should_repair == 'true'
@@ -286,7 +350,11 @@ jobs:
           REPO:        ${{ github.repository }}
           ARTIFACT_ID: ${{ steps.analyze.outputs.artifact_id }}
         run: |
-          import os, sys, traceback, urllib.error, urllib.request
+          import os
+          import sys
+          import traceback
+          import urllib.error
+          import urllib.request
 
           TOKEN       = os.environ['GH_TOKEN']
           REPO        = os.environ['REPO']
@@ -296,34 +364,97 @@ jobs:
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
                   fh.write(msg + '\n')
 
-          url = f'https://api.github.com/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip'
-          req = urllib.request.Request(url, headers={
+          # ── Step 1: ask GitHub for the redirect URL, do NOT follow it ─────────
+          #
+          # The GitHub artifact download endpoint returns a 302 redirect to an
+          # Azure Blob Storage URL that already contains a pre-signed SAS token.
+          # If you forward the GitHub Authorization header to Azure, Azure rejects
+          # it with 401/403 (two auth schemes conflict).  The correct pattern is:
+          #   1. GET api.github.com/…/zip  with GitHub auth  → 302 + Location header
+          #   2. GET <Location URL>         WITHOUT any auth  → 200 + zip body
+          #
+          # urllib.request.urlopen follows redirects automatically and carries all
+          # headers along, which breaks step 2.  We therefore disable redirect
+          # following for the first request via a custom handler.
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None  # refuse to follow; urlopen will raise HTTPError(30x)
+
+          gh_opener = urllib.request.build_opener(NoRedirect)
+
+          api_url = f'https://api.github.com/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip'
+          api_req = urllib.request.Request(api_url, headers={
               'Authorization': f'Bearer {TOKEN}',
               'Accept': 'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28',
           })
 
+          print(f'Fetching redirect URL for artifact {ARTIFACT_ID} …', flush=True)
+          blob_url = None
+          try:
+              gh_opener.open(api_req)
+              # If we somehow get a 200 here (unexpected), read it directly
+              print('WARNING: expected a redirect but got 200; trying to use response directly.', file=sys.stderr)
+              summary(':warning: Expected redirect from GitHub but got 200. Will attempt direct read.')
+              blob_url = api_url  # fallback — probably won't work but worth trying
+          except urllib.error.HTTPError as exc:
+              if exc.code in (301, 302, 303, 307, 308):
+                  blob_url = exc.headers.get('Location')
+                  print(f'Redirect → {blob_url[:80]}…', flush=True)
+              else:
+                  body = exc.read().decode(errors='replace')
+                  summary(f':x: GitHub API error getting artifact URL: HTTP `{exc.code} {exc.reason}`')
+                  summary(f'```\n{body[:800]}\n```')
+                  print(f'GitHub API error: {exc.code} {exc.reason}\n{body}', file=sys.stderr)
+                  sys.exit(1)
+          except Exception:
+              summary(f':x: Unexpected error fetching artifact redirect:\n```\n{traceback.format_exc()}\n```')
+              print(traceback.format_exc(), file=sys.stderr)
+              sys.exit(1)
+
+          if not blob_url:
+              summary(':x: No Location header in redirect response. Cannot download artifact.')
+              print('No Location header received.', file=sys.stderr)
+              sys.exit(1)
+
+          # ── Step 2: download from the pre-signed Azure Blob URL ───────────────
+          # No Authorization header — the URL is already authenticated via SAS token.
           os.makedirs('artifact_download', exist_ok=True)
           dest = 'artifact_download/WowAHaha_csv.zip'
 
-          print(f'Downloading artifact {ARTIFACT_ID} → {dest} …', flush=True)
-
+          print(f'Downloading from blob URL → {dest} …', flush=True)
+          CHUNK = 1024 * 1024  # 1 MB chunks — zip can be 300+ MB
           try:
-              with urllib.request.urlopen(req) as resp, open(dest, 'wb') as fh:
+              blob_req = urllib.request.Request(blob_url)  # no auth headers
+              with urllib.request.urlopen(blob_req) as resp, open(dest, 'wb') as fh:
                   downloaded = 0
                   while True:
-                      chunk = resp.read(1024 * 1024) # 1MB chunk
-                      if not chunk: break
+                      chunk = resp.read(CHUNK)
+                      if not chunk:
+                          break
                       fh.write(chunk)
                       downloaded += len(chunk)
                       print(f'  … {downloaded / (1024 * 1024):.1f} MB received', flush=True)
           except urllib.error.HTTPError as exc:
               body = exc.read().decode(errors='replace')
-              summary(f':x: Download failed: HTTP `{exc.code}`\n```\n{body[:500]}\n```')
+              summary(f':x: Blob download failed: HTTP `{exc.code} {exc.reason}`')
+              summary(f'```\n{body[:500]}\n```')
+              print(f'Blob download failed: {exc.code} {exc.reason}\n{body}', file=sys.stderr)
+              sys.exit(1)
+          except Exception:
+              summary(f':x: Unexpected download error:\n```\n{traceback.format_exc()}\n```')
+              print(traceback.format_exc(), file=sys.stderr)
               sys.exit(1)
 
           size_mb = os.path.getsize(dest) / (1024 * 1024)
           print(f'Download complete: {size_mb:.2f} MB', flush=True)
+
+          if size_mb < 1.0:
+              summary(f':x: Downloaded file is suspiciously small ({size_mb:.2f} MB) — likely an error response.')
+              print('Downloaded artifact is too small.', file=sys.stderr)
+              sys.exit(1)
+
           summary(f'\n- :inbox_tray: Downloaded artifact zip: `{dest}` ({size_mb:.2f} MB)')
 
       - name: Extract zip, validate contents, and recreate 7z archive
@@ -334,20 +465,29 @@ jobs:
           set -euo pipefail
 
           echo "## :package: Extract & Repack" >> $GITHUB_STEP_SUMMARY
-          mkdir -p wd_repaired
-          unzip -q -o artifact_download/WowAHaha_csv.zip -d wd_repaired
 
+          mkdir -p wd_repaired
+          echo "Extracting artifact zip…"
+          unzip -q -o artifact_download/WowAHaha_csv.zip -d wd_repaired
+          echo "Extraction done."
+
+          # Remove any nested archives that may have been packaged inside the artifact
           find wd_repaired -name '*.7z' -delete
           find wd_repaired -name '*.zip' -delete
 
+          # Validate: must contain CSV files
           csv_count=$(find wd_repaired -name '*.csv' | wc -l)
+          jsonl_count=$(find wd_repaired -name '*.jsonl' | wc -l)
           echo "- CSV files: **${csv_count}**" >> $GITHUB_STEP_SUMMARY
-          
+          echo "- JSONL files: **${jsonl_count}**" >> $GITHUB_STEP_SUMMARY
+          echo "CSV: ${csv_count}, JSONL: ${jsonl_count}"
+
           if [ "${csv_count}" -eq 0 ]; then
-            echo "::error::No CSV files found in extracted artifact."
+            echo "::error::No CSV files found in extracted artifact — corrupt or wrong artifact?"
             exit 1
           fi
 
+          # Collapsible file listing
           {
             echo "<details><summary>Extracted file listing</summary>"
             echo ""
@@ -360,19 +500,25 @@ jobs:
             echo "</details>"
           } >> $GITHUB_STEP_SUMMARY
 
+          echo "Creating ${EXPECTED_ARCHIVE_NAME}…"
           pushd wd_repaired
+          # SC2086: word-split is intentional — SEVENZIP_FLAGS contains multiple flags
           # shellcheck disable=SC2086
           7z a ${{ env.SEVENZIP_FLAGS }} "../${EXPECTED_ARCHIVE_NAME}" *
           popd
 
           archive_size=$(wc -c < "${EXPECTED_ARCHIVE_NAME}")
           archive_size_human=$(ls -lh "${EXPECTED_ARCHIVE_NAME}" | awk '{print $5}')
+          echo "Archive: ${EXPECTED_ARCHIVE_NAME} — ${archive_size_human} (${archive_size} bytes)"
           echo "- :package: Created \`${EXPECTED_ARCHIVE_NAME}\` (${archive_size_human})" >> $GITHUB_STEP_SUMMARY
 
           if [ "${archive_size}" -lt 50000 ]; then
             echo "::error::Archive is suspiciously small (${archive_size} bytes)."
             exit 1
           fi
+
+          echo "ARCHIVE_SIZE=${archive_size}"             >> $GITHUB_ENV
+          echo "ARCHIVE_SIZE_HUMAN=${archive_size_human}" >> $GITHUB_ENV
 
       - name: Attest Build Provenance of repaired archive
         if: steps.analyze.outputs.should_repair == 'true'
@@ -389,7 +535,12 @@ jobs:
           RELEASE_ID:   ${{ steps.analyze.outputs.release_id }}
           ARCHIVE_NAME: ${{ steps.analyze.outputs.expected_archive_name }}
         run: |
-          import json, os, sys, traceback, urllib.error, urllib.request
+          import json
+          import os
+          import sys
+          import traceback
+          import urllib.error
+          import urllib.request
 
           TOKEN        = os.environ['GH_TOKEN']
           REPO         = os.environ['REPO']
@@ -406,54 +557,100 @@ jobs:
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
                   fh.write(msg + '\n')
 
+          def gh_get(path):
+              url = f'https://api.github.com/repos/{REPO}/{path}'
+              req = urllib.request.Request(url, headers=GH_HEADERS)
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      return json.loads(resp.read())
+              except urllib.error.HTTPError as exc:
+                  exc.gh_body = exc.read().decode(errors='replace')
+                  raise
+
+          def gh_delete(url):
+              req = urllib.request.Request(url, headers=GH_HEADERS, method='DELETE')
+              try:
+                  urllib.request.urlopen(req)
+              except urllib.error.HTTPError as exc:
+                  exc.gh_body = exc.read().decode(errors='replace')
+                  raise
+
           summary('\n## :arrow_up: Upload\n')
 
-          # 1. Delete any stale asset
-          req = urllib.request.Request(f'https://api.github.com/repos/{REPO}/releases/{RELEASE_ID}/assets', headers=GH_HEADERS)
+          # 1. Delete any stale (possibly zero-byte) asset with the same name
           try:
-              with urllib.request.urlopen(req) as resp:
-                  assets = json.loads(resp.read())
-          except Exception as exc:
-              sys.exit(f"Failed to fetch assets: {exc}")
+              assets = gh_get(f'releases/{RELEASE_ID}/assets')
+          except urllib.error.HTTPError as exc:
+              body = getattr(exc, 'gh_body', '')
+              summary(f':x: Could not list release assets: HTTP {exc.code}\n```\n{body}\n```')
+              print(f'Failed to list assets: {exc.code}\n{body}', file=sys.stderr)
+              sys.exit(1)
+          except Exception:
+              summary(f':x: Unexpected error listing assets:\n```\n{traceback.format_exc()}\n```')
+              print(traceback.format_exc(), file=sys.stderr)
+              sys.exit(1)
 
           for asset in assets:
               if asset['name'] == ARCHIVE_NAME:
-                  del_req = urllib.request.Request(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', headers=GH_HEADERS, method='DELETE')
+                  asset_id = asset['id']
+                  del_url  = f'https://api.github.com/repos/{REPO}/releases/assets/{asset_id}'
+                  print(f'Deleting stale asset id={asset_id} ({ARCHIVE_NAME}) …', flush=True)
                   try:
-                      urllib.request.urlopen(del_req)
-                      summary(f'- :wastebasket: Deleted stale asset `{ARCHIVE_NAME}`')
-                  except Exception as e:
-                      print(f'Warning: delete failed: {e}')
+                      gh_delete(del_url)
+                      summary(f'- :wastebasket: Deleted stale asset `{ARCHIVE_NAME}` (id=`{asset_id}`)')
+                  except urllib.error.HTTPError as exc:
+                      body = getattr(exc, 'gh_body', '')
+                      # Non-fatal: proceed; GitHub may accept the upload anyway
+                      summary(f':warning: Could not delete stale asset (HTTP {exc.code}): `{body[:300]}`')
+                      print(f'Warning: delete failed: {exc.code} {body}', file=sys.stderr)
 
-          # 2. Upload the new archive natively via Content-Length streaming
+          # 2. Upload the new archive, streaming from disk to avoid ~300 MB in RAM
           archive_size = os.path.getsize(ARCHIVE_NAME)
-          upload_url   = f'https://uploads.github.com/repos/{REPO}/releases/{RELEASE_ID}/assets?name={ARCHIVE_NAME}'
-          
+          size_mb      = archive_size / (1024 * 1024)
+          upload_url   = (
+              f'https://uploads.github.com/repos/{REPO}/releases/{RELEASE_ID}/assets'
+              f'?name={ARCHIVE_NAME}'
+          )
           upload_headers = {
-              'Authorization': f'Bearer {TOKEN}',
-              'Content-Type': 'application/x-7z-compressed',
-              'Content-Length': str(archive_size),
-              'Accept': 'application/vnd.github+json',
+              'Authorization':        f'Bearer {TOKEN}',
+              'Content-Type':         'application/x-7z-compressed',
+              'Content-Length':       str(archive_size),
+              'Accept':               'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28',
           }
 
-          print(f'Uploading {ARCHIVE_NAME} ...', flush=True)
+          print(f'Uploading {ARCHIVE_NAME} ({size_mb:.2f} MB) …', flush=True)
           try:
               with open(ARCHIVE_NAME, 'rb') as fh:
-                  upload_req = urllib.request.Request(upload_url, data=fh, headers=upload_headers, method='POST')
+                  upload_req = urllib.request.Request(
+                      upload_url,
+                      data=fh,
+                      headers=upload_headers,
+                      method='POST',
+                  )
                   with urllib.request.urlopen(upload_req) as resp:
                       result = json.loads(resp.read())
           except urllib.error.HTTPError as exc:
               body = exc.read().decode(errors='replace')
-              summary(f':x: Upload failed: HTTP `{exc.code}`\n```\n{body[:800]}\n```')
+              summary(f':x: Upload failed: HTTP `{exc.code} {exc.reason}`\n```\n{body[:800]}\n```')
+              print(f'Upload failed: {exc.code} {exc.reason}\n{body}', file=sys.stderr)
+              sys.exit(1)
+          except Exception:
+              summary(f':x: Unexpected upload error:\n```\n{traceback.format_exc()}\n```')
+              print(traceback.format_exc(), file=sys.stderr)
               sys.exit(1)
 
           asset_id = result.get('id')
           dl_url   = result.get('browser_download_url', '(unknown)')
-          
+          print(f'Upload successful! asset_id={asset_id}  url={dl_url}', flush=True)
+
           summary(f'## :white_check_mark: Repair Successful!\n')
-          summary(f'- Size: {archive_size / (1024 * 1024):.2f} MB')
-          summary(f'- Download: {dl_url}')
+          summary(f'| Field | Value |')
+          summary(f'|-------|-------|')
+          summary(f'| Archive | `{ARCHIVE_NAME}` |')
+          summary(f'| Size | {size_mb:.2f} MB |')
+          summary(f'| Asset ID | `{asset_id}` |')
+          summary(f'| Download | {dl_url} |')
 
       - name: No repair needed — final summary
         if: steps.analyze.outputs.should_repair != 'true'
