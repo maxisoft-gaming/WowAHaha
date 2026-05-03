@@ -53,6 +53,9 @@
       <Content Include="..\.github\workflows\keep_alive.yml">
         <Link>.github\workflows\keep_alive.yml</Link>
       </Content>
+      <Content Include="..\.github\workflows\repair_release.yml">
+        <Link>.github\workflows\repair_release.yml</Link>
+      </Content>
       <Content Include="..\.github\workflows\run_every_hour.yml">
         <Link>.github\workflows\run_every_hour.yml</Link>
       </Content>

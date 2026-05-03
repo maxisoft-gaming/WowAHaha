@@ -1,0 +1,462 @@
+name: Repair Missing Release Archive
+
+on:
+  schedule:
+    # Run every 2 hours, offset from the main workflow
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run - check only, do not repair'
+        default: false
+        required: false
+        type: boolean
+      force_repair:
+        description: 'Force repair even if failure is recent (< 6 hours)'
+        default: false
+        required: false
+        type: boolean
+
+env:
+  RELEASE_CSV_PREFIX: wow_ah_csv_
+  SEVENZIP_FLAGS: '-mx=2 -md=64m -xr!*.7z -xr!*.zip'
+  MIN_FAILURE_AGE_HOURS: 6
+  MONITORED_WORKFLOW: run_every_hour.yml
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.actor }}"
+  cancel-in-progress: false
+
+jobs:
+  check-and-repair:
+    name: Check and Repair Missing Release Archive
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+      contents: write
+      actions: read
+
+    steps:
+      - name: Analyze failure and decide whether to repair
+        id: analyze
+        shell: python
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          FORCE_REPAIR: ${{ inputs.force_repair || 'false' }}
+        run: |
+          import json
+          import os
+          import sys
+          import traceback
+          import urllib.error
+          import urllib.request
+          from datetime import datetime, timezone
+
+          # ── Helpers ──────────────────────────────────────────────────────────
+
+          TRUE_VALUES = {'true', '1', 'yes', 'on'}
+
+          def summary(msg: str) -> None:
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
+                  fh.write(msg + '\n')
+
+          def set_output(key: str, value: str) -> None:
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+                  fh.write(f'{key}={value}\n')
+
+          def bail(reason: str, *, exit_code: int = 0) -> None:
+              print(f'[bail] {reason}', file=sys.stderr)
+              summary(f'\n> **Result:** {reason}')
+              set_output('should_repair', 'false')
+              sys.exit(exit_code)
+
+          TOKEN                 = os.environ['GH_TOKEN']
+          REPO                  = os.environ['REPO']
+          MONITORED_WORKFLOW    = os.environ['MONITORED_WORKFLOW']
+          MIN_FAILURE_AGE_HOURS = int(os.environ.get('MIN_FAILURE_AGE_HOURS', '6'))
+          RELEASE_CSV_PREFIX    = os.environ['RELEASE_CSV_PREFIX']
+          dry_run               = os.environ.get('DRY_RUN',      'false').lower() in TRUE_VALUES
+          force_repair          = os.environ.get('FORCE_REPAIR', 'false').lower() in TRUE_VALUES
+
+          GH_HEADERS = {
+              'Authorization': f'Bearer {TOKEN}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def gh_get(path: str) -> dict:
+              url = f'https://api.github.com/repos/{REPO}/{path}'
+              req = urllib.request.Request(url, headers=GH_HEADERS)
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      return json.loads(resp.read())
+              except urllib.error.HTTPError as exc:
+                  exc.gh_body = exc.read().decode(errors='replace')
+                  raise
+
+          now = datetime.now(timezone.utc)
+
+          summary(f'# Repair Check — {now.strftime("%Y-%m-%d %H:%M UTC")}\n')
+          summary(f'| Setting | Value |')
+          summary(f'|---------|-------|')
+          summary(f'| Repo | `{REPO}` |')
+          summary(f'| Dry run | `{dry_run}` |')
+          summary(f'| Force repair | `{force_repair}` |')
+          summary(f'| Min failure age | `{MIN_FAILURE_AGE_HOURS}h` |')
+          summary('')
+          set_output('dry_run', str(dry_run).lower())
+
+          # ── 1. Inspect recent workflow runs ───────────────────────────────────
+          summary('## Step 1 — Inspect recent workflow runs\n')
+          try:
+              runs_data = gh_get(f'actions/workflows/{MONITORED_WORKFLOW}/runs?per_page=20&branch=main')
+          except urllib.error.HTTPError as exc:
+              body = getattr(exc, 'gh_body', '')
+              summary(f':x: GitHub API error fetching runs: `{exc.code} {exc.reason}`')
+              summary(f'```\n{body[:800]}\n```')
+              bail(f'Cannot fetch workflow runs (HTTP {exc.code}).', exit_code=1)
+          except Exception:
+              summary(f':x: Unexpected error fetching runs:\n```\n{traceback.format_exc()}\n```')
+              bail('Unexpected error. See logs.', exit_code=1)
+
+          runs = runs_data.get('workflow_runs', [])
+          if not runs:
+              bail(':information_source: No workflow runs found for this workflow. Nothing to repair.')
+
+          most_recent            = runs[0]
+          most_recent_id         = most_recent.get('id')
+          most_recent_status     = most_recent.get('status')
+          most_recent_conclusion = most_recent.get('conclusion')
+          most_recent_updated    = most_recent.get('updated_at', '')
+          most_recent_url        = most_recent.get('html_url', '')
+
+          summary(
+              f'| Field | Value |\n|-------|-------|\n'
+              f'| Run | [`#{most_recent_id}`]({most_recent_url}) |\n'
+              f'| Status | `{most_recent_status}` |\n'
+              f'| Conclusion | `{most_recent_conclusion}` |\n'
+              f'| Updated at | `{most_recent_updated}` |'
+          )
+
+          IN_PROGRESS_STATUSES = {'in_progress', 'queued', 'waiting', 'requested', 'pending'}
+          if most_recent_status in IN_PROGRESS_STATUSES:
+              bail(':information_source: Most recent run is still in progress. Skipping.')
+
+          FAILING_CONCLUSIONS = {'failure', 'timed_out', 'cancelled', 'startup_failure'}
+          if most_recent_conclusion not in FAILING_CONCLUSIONS:
+              bail(':white_check_mark: Most recent run succeeded. No repair needed.')
+
+          summary(f'\n:warning: Most recent run concluded with `{most_recent_conclusion}`.')
+
+          # ── 2. Check failure age ──────────────────────────────────────────────
+          summary('\n## Step 2 — Check failure age\n')
+          try:
+              fail_time = datetime.strptime(
+                  most_recent_updated, '%Y-%m-%dT%H:%M:%SZ'
+              ).replace(tzinfo=timezone.utc)
+          except ValueError as exc:
+              summary(f':warning: Could not parse `updated_at` (`{most_recent_updated}`): {exc}.')
+              print(f'Warning: updated_at parse failed: {exc}', file=sys.stderr)
+              fail_time = now
+
+          failure_age_hours = (now - fail_time).total_seconds() / 3600
+          summary(f'- Failure age: **{failure_age_hours:.1f}h** (threshold: `{MIN_FAILURE_AGE_HOURS}h`)')
+          summary(f'- Force repair override: `{force_repair}`')
+
+          if not force_repair and failure_age_hours < MIN_FAILURE_AGE_HOURS:
+              bail(f':hourglass: Failure is only {failure_age_hours:.1f}h old (< {MIN_FAILURE_AGE_HOURS}h). Waiting before attempting repair.')
+
+          # ── 3. Fetch latest release and check for missing archive ─────────────
+          summary('\n## Step 3 — Check release and archive presence\n')
+          try:
+              release_data = gh_get('releases/latest')
+          except urllib.error.HTTPError as exc:
+              body = getattr(exc, 'gh_body', '')
+              if exc.code == 404:
+                  summary(':information_source: No releases found — expected on brand-new repos.')
+                  bail('No releases exist yet. Nothing to repair.')
+              summary(f':x: GitHub API error fetching latest release: `{exc.code} {exc.reason}`')
+              summary(f'```\n{body[:800]}\n```')
+              bail(f'Cannot fetch latest release (HTTP {exc.code}).', exit_code=1)
+          except Exception:
+              summary(f':x: Unexpected error:\n```\n{traceback.format_exc()}\n```')
+              bail('Unexpected error fetching release.', exit_code=1)
+
+          latest_tag  = release_data['tag_name']
+          release_id  = release_data['id']
+          release_url = release_data.get('html_url', '')
+          assets      = release_data.get('assets', [])
+          asset_names = [a['name'] for a in assets]
+
+          # FIXED: Fallback uses `latest_tag` rather than the potentially out-of-sync system clock.
+          expected_archive_name = next(
+              (name for name in asset_names if name.startswith(RELEASE_CSV_PREFIX) and name.endswith('.7z')),
+              f'{RELEASE_CSV_PREFIX}{latest_tag}.7z',
+          )
+
+          summary(f'| Field | Value |')
+          summary(f'|-------|-------|')
+          summary(f'| Tag | [`{latest_tag}`]({release_url}) |')
+          summary(f'| Release ID | `{release_id}` |')
+          summary(f'| Expected archive | `{expected_archive_name}` |')
+          summary(f'| Current assets | `{asset_names or "(none)"}` |')
+
+          if expected_archive_name in asset_names:
+              bail(f':white_check_mark: `{expected_archive_name}` already present in release. No repair needed.')
+
+          summary(f'\n:warning: `{expected_archive_name}` is **missing** from release `{latest_tag}`!')
+
+          # ── 4. Find the most recent successful run with a live artifact ────────
+          summary('\n## Step 4 — Find viable artifact from a successful run\n')
+          artifact_run_id = None
+          artifact_id     = None
+          ARTIFACT_NAME   = 'WowAHaha_csv'
+
+          for run in runs:
+              if run.get('conclusion') != 'success':
+                  continue
+              run_id  = run['id']
+              run_url = run.get('html_url', '')
+              try:
+                  arts_data = gh_get(f'actions/runs/{run_id}/artifacts')
+              except urllib.error.HTTPError as exc:
+                  body = getattr(exc, 'gh_body', '')
+                  summary(f'- :warning: Could not fetch artifacts for run [`#{run_id}`]({run_url}): HTTP {exc.code} — `{body[:200]}`')
+                  continue
+              except Exception:
+                  summary(f'- :warning: Unexpected error fetching artifacts for run `#{run_id}`:\n```\n{traceback.format_exc()}\n```')
+                  continue
+
+              for art in arts_data.get('artifacts', []):
+                  if art['name'] != ARTIFACT_NAME:
+                      continue
+                  if art.get('expired', False):
+                      summary(f'- :hourglass: Artifact in run [`#{run_id}`]({run_url}) is expired. Skipping.')
+                      break
+          
+                  artifact_run_id = run_id
+                  artifact_id     = art['id']
+                  art_size_mb     = art.get('size_in_bytes', 0) / (1024 * 1024)
+                  summary(f'- :white_check_mark: Found `{ARTIFACT_NAME}` in run [`#{run_id}`]({run_url}) (id=`{artifact_id}`, size≈{art_size_mb:.1f} MB)')
+                  break
+
+              if artifact_run_id:
+                  break
+
+          if not artifact_run_id:
+              bail(':x: Could not find any recent successful run with a live `WowAHaha_csv` artifact. Cannot repair.', exit_code=1)
+
+          summary(f'\n**Decision: REPAIR REQUIRED**')
+          if dry_run:
+              summary('\n> :information_source: **DRY RUN** — analysis complete, no changes will be made.')
+
+          set_output('should_repair',         str(not dry_run).lower())
+          set_output('artifact_id',           str(artifact_id))
+          set_output('artifact_run_id',       str(artifact_run_id))
+          set_output('release_id',            str(release_id))
+          set_output('latest_tag',            latest_tag)
+          set_output('expected_archive_name', expected_archive_name)
+
+      # ── Repair steps ──────────────────────────────────────────────────────────
+
+      - name: Log repair plan
+        if: steps.analyze.outputs.should_repair == 'true'
+        run: |
+          {
+            echo "## :wrench: Repair Plan"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Tag | \`${{ steps.analyze.outputs.latest_tag }}\` |"
+            echo "| Release ID | \`${{ steps.analyze.outputs.release_id }}\` |"
+            echo "| Expected archive | \`${{ steps.analyze.outputs.expected_archive_name }}\` |"
+            echo "| Source artifact ID | \`${{ steps.analyze.outputs.artifact_id }}\` |"
+            echo "| Source run | \`#${{ steps.analyze.outputs.artifact_run_id }}\` |"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Download WowAHaha_csv artifact
+        if: steps.analyze.outputs.should_repair == 'true'
+        shell: python
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          REPO:        ${{ github.repository }}
+          ARTIFACT_ID: ${{ steps.analyze.outputs.artifact_id }}
+        run: |
+          import os, sys, traceback, urllib.error, urllib.request
+
+          TOKEN       = os.environ['GH_TOKEN']
+          REPO        = os.environ['REPO']
+          ARTIFACT_ID = os.environ['ARTIFACT_ID']
+
+          def summary(msg):
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
+                  fh.write(msg + '\n')
+
+          url = f'https://api.github.com/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip'
+          req = urllib.request.Request(url, headers={
+              'Authorization': f'Bearer {TOKEN}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          })
+
+          os.makedirs('artifact_download', exist_ok=True)
+          dest = 'artifact_download/WowAHaha_csv.zip'
+
+          print(f'Downloading artifact {ARTIFACT_ID} → {dest} …', flush=True)
+
+          try:
+              with urllib.request.urlopen(req) as resp, open(dest, 'wb') as fh:
+                  downloaded = 0
+                  while True:
+                      chunk = resp.read(1024 * 1024) # 1MB chunk
+                      if not chunk: break
+                      fh.write(chunk)
+                      downloaded += len(chunk)
+                      print(f'  … {downloaded / (1024 * 1024):.1f} MB received', flush=True)
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode(errors='replace')
+              summary(f':x: Download failed: HTTP `{exc.code}`\n```\n{body[:500]}\n```')
+              sys.exit(1)
+
+          size_mb = os.path.getsize(dest) / (1024 * 1024)
+          print(f'Download complete: {size_mb:.2f} MB', flush=True)
+          summary(f'\n- :inbox_tray: Downloaded artifact zip: `{dest}` ({size_mb:.2f} MB)')
+
+      - name: Extract zip, validate contents, and recreate 7z archive
+        if: steps.analyze.outputs.should_repair == 'true'
+        env:
+          EXPECTED_ARCHIVE_NAME: ${{ steps.analyze.outputs.expected_archive_name }}
+        run: |
+          set -euo pipefail
+
+          echo "## :package: Extract & Repack" >> $GITHUB_STEP_SUMMARY
+          mkdir -p wd_repaired
+          unzip -q -o artifact_download/WowAHaha_csv.zip -d wd_repaired
+
+          find wd_repaired -name '*.7z' -delete
+          find wd_repaired -name '*.zip' -delete
+
+          csv_count=$(find wd_repaired -name '*.csv' | wc -l)
+          echo "- CSV files: **${csv_count}**" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${csv_count}" -eq 0 ]; then
+            echo "::error::No CSV files found in extracted artifact."
+            exit 1
+          fi
+
+          {
+            echo "<details><summary>Extracted file listing</summary>"
+            echo ""
+            echo '```'
+            find wd_repaired -type f | sort | while read -r f; do
+              size=$(du -sh "$f" | cut -f1)
+              printf "%-60s %s\n" "${f#wd_repaired/}" "$size"
+            done
+            echo '```'
+            echo "</details>"
+          } >> $GITHUB_STEP_SUMMARY
+
+          pushd wd_repaired
+          # shellcheck disable=SC2086
+          7z a ${{ env.SEVENZIP_FLAGS }} "../${EXPECTED_ARCHIVE_NAME}" *
+          popd
+
+          archive_size=$(wc -c < "${EXPECTED_ARCHIVE_NAME}")
+          archive_size_human=$(ls -lh "${EXPECTED_ARCHIVE_NAME}" | awk '{print $5}')
+          echo "- :package: Created \`${EXPECTED_ARCHIVE_NAME}\` (${archive_size_human})" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${archive_size}" -lt 50000 ]; then
+            echo "::error::Archive is suspiciously small (${archive_size} bytes)."
+            exit 1
+          fi
+
+      - name: Attest Build Provenance of repaired archive
+        if: steps.analyze.outputs.should_repair == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "${{ steps.analyze.outputs.expected_archive_name }}"
+
+      - name: Upload repaired archive to release
+        if: steps.analyze.outputs.should_repair == 'true'
+        shell: python
+        env:
+          GH_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          REPO:         ${{ github.repository }}
+          RELEASE_ID:   ${{ steps.analyze.outputs.release_id }}
+          ARCHIVE_NAME: ${{ steps.analyze.outputs.expected_archive_name }}
+        run: |
+          import json, os, sys, traceback, urllib.error, urllib.request
+
+          TOKEN        = os.environ['GH_TOKEN']
+          REPO         = os.environ['REPO']
+          RELEASE_ID   = os.environ['RELEASE_ID']
+          ARCHIVE_NAME = os.environ['ARCHIVE_NAME']
+
+          GH_HEADERS = {
+              'Authorization': f'Bearer {TOKEN}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def summary(msg):
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
+                  fh.write(msg + '\n')
+
+          summary('\n## :arrow_up: Upload\n')
+
+          # 1. Delete any stale asset
+          req = urllib.request.Request(f'https://api.github.com/repos/{REPO}/releases/{RELEASE_ID}/assets', headers=GH_HEADERS)
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  assets = json.loads(resp.read())
+          except Exception as exc:
+              sys.exit(f"Failed to fetch assets: {exc}")
+
+          for asset in assets:
+              if asset['name'] == ARCHIVE_NAME:
+                  del_req = urllib.request.Request(f'https://api.github.com/repos/{REPO}/releases/assets/{asset["id"]}', headers=GH_HEADERS, method='DELETE')
+                  try:
+                      urllib.request.urlopen(del_req)
+                      summary(f'- :wastebasket: Deleted stale asset `{ARCHIVE_NAME}`')
+                  except Exception as e:
+                      print(f'Warning: delete failed: {e}')
+
+          # 2. Upload the new archive natively via Content-Length streaming
+          archive_size = os.path.getsize(ARCHIVE_NAME)
+          upload_url   = f'https://uploads.github.com/repos/{REPO}/releases/{RELEASE_ID}/assets?name={ARCHIVE_NAME}'
+          
+          upload_headers = {
+              'Authorization': f'Bearer {TOKEN}',
+              'Content-Type': 'application/x-7z-compressed',
+              'Content-Length': str(archive_size),
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          print(f'Uploading {ARCHIVE_NAME} ...', flush=True)
+          try:
+              with open(ARCHIVE_NAME, 'rb') as fh:
+                  upload_req = urllib.request.Request(upload_url, data=fh, headers=upload_headers, method='POST')
+                  with urllib.request.urlopen(upload_req) as resp:
+                      result = json.loads(resp.read())
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode(errors='replace')
+              summary(f':x: Upload failed: HTTP `{exc.code}`\n```\n{body[:800]}\n```')
+              sys.exit(1)
+
+          asset_id = result.get('id')
+          dl_url   = result.get('browser_download_url', '(unknown)')
+          
+          summary(f'## :white_check_mark: Repair Successful!\n')
+          summary(f'- Size: {archive_size / (1024 * 1024):.2f} MB')
+          summary(f'- Download: {dl_url}')
+
+      - name: No repair needed — final summary
+        if: steps.analyze.outputs.should_repair != 'true'
+        run: |
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo ":white_check_mark: Script completed. No repair action was taken." >> $GITHUB_STEP_SUMMARY
