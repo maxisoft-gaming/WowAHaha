@@ -509,7 +509,7 @@ jobs:
 
       - name: Attest Build Provenance of repaired archive
         if: steps.analyze.outputs.should_repair == 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "${{ steps.analyze.outputs.expected_archive_name }}"
 
