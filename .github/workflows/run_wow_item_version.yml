@@ -33,7 +33,7 @@ jobs:
         run: dotnet run --no-build --configuration Release --project WowItemVersion > wow_item_to_expansion.json
 
       - name: Create artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: WowItemVersion_${{ matrix.os }}_${{ matrix.dotnet-version }}
