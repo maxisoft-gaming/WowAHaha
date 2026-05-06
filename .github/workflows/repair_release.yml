@@ -20,7 +20,7 @@ on:
 env:
   RELEASE_CSV_PREFIX: wow_ah_csv_
   SEVENZIP_FLAGS: '-mx=2 -md=64m -xr!*.7z -xr!*.zip'
-  MIN_FAILURE_AGE_HOURS: 6
+  MIN_FAILURE_AGE_HOURS: 1
   MONITORED_WORKFLOW: run_every_hour.yml
 
 concurrency:
@@ -160,32 +160,8 @@ jobs:
 
           summary(f'\n:warning: Most recent run concluded with `{most_recent_conclusion}`.')
 
-          # ── 2. Check failure age ──────────────────────────────────────────────
-          summary('\n## Step 2 — Check failure age\n')
-          try:
-              fail_time = datetime.strptime(
-                  most_recent_updated, '%Y-%m-%dT%H:%M:%SZ'
-              ).replace(tzinfo=timezone.utc)
-          except ValueError as exc:
-              summary(
-                  f':warning: Could not parse `updated_at` (`{most_recent_updated}`): {exc}. '
-                  'Treating as just-failed (will not pass age gate unless forced).'
-              )
-              print(f'Warning: updated_at parse failed: {exc}', file=sys.stderr)
-              fail_time = now
-
-          failure_age_hours = (now - fail_time).total_seconds() / 3600
-          summary(f'- Failure age: **{failure_age_hours:.1f}h** (threshold: `{MIN_FAILURE_AGE_HOURS}h`)')
-          summary(f'- Force repair override: `{force_repair}`')
-
-          if not force_repair and failure_age_hours < MIN_FAILURE_AGE_HOURS:
-              bail(
-                  f':hourglass: Failure is only {failure_age_hours:.1f}h old '
-                  f'(< {MIN_FAILURE_AGE_HOURS}h). Waiting before attempting repair.'
-              )
-
-          # ── 3. Fetch latest release and check for the expected archive ────────
-          summary('\n## Step 3 — Check release and archive presence\n')
+          # ── 2. Fetch latest release and check for the expected archive ────────
+          summary('\n## Step 2 — Check release and archive presence\n')
           try:
               releases_data = gh_get('releases?per_page=20')
           except urllib.error.HTTPError as exc:
@@ -209,7 +185,7 @@ jobs:
           def get_release_sort_key(r):
               tag = r.get('tag_name', '')
               try:
-                  # Parse 'csv2026.10' -> (2026, 10) to ensure 10 > 5 numerically
+                  # Parse 'csv2026.10' -> (2026, 10) for numeric sorting
                   y, m = map(int, tag.lstrip('csv').split('.'))
                   return (y, m, r.get('published_at') or '')
               except Exception:
@@ -272,6 +248,50 @@ jobs:
               bail(f':white_check_mark: `{expected_archive_name}` already present in release. No repair needed.')
 
           summary(f'\n:warning: `{expected_archive_name}` is **missing** from release `{latest_tag}`!')
+
+          # ── 3. Check failure age using release assets ─────────────────────────
+          summary('\n## Step 3 — Check failure age\n')
+          
+          last_healthy_time = None
+          
+          # 1. Base the broken state duration on the most recently updated asset in the release
+          if assets:
+              try:
+                  asset_dates = [
+                      datetime.strptime(a['updated_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+                      for a in assets if a.get('updated_at')
+                  ]
+                  if asset_dates:
+                      last_healthy_time = max(asset_dates)
+              except Exception as exc:
+                  print(f'Warning: asset updated_at parse failed: {exc}', file=sys.stderr)
+
+          # 2. Fallback to the last successful workflow run if assets yielded nothing
+          if not last_healthy_time:
+              success_runs = [r for r in runs if r.get('conclusion') == 'success']
+              if success_runs:
+                  try:
+                      last_healthy_time = datetime.strptime(
+                          success_runs[0].get('updated_at', ''), '%Y-%m-%dT%H:%M:%SZ'
+                      ).replace(tzinfo=timezone.utc)
+                  except Exception:
+                      pass
+                      
+          # 3. Absolute fallback
+          if not last_healthy_time:
+              last_healthy_time = now
+
+          failure_age_hours = (now - last_healthy_time).total_seconds() / 3600
+          
+          summary(f'- Last healthy time: `{last_healthy_time.strftime("%Y-%m-%d %H:%M:%S UTC")}`')
+          summary(f'- Failure age: **{failure_age_hours:.1f}h** (threshold: `{MIN_FAILURE_AGE_HOURS}h`)')
+          summary(f'- Force repair override: `{force_repair}`')
+
+          if not force_repair and failure_age_hours < MIN_FAILURE_AGE_HOURS:
+              bail(
+                  f':hourglass: Broken state is only {failure_age_hours:.1f}h old '
+                  f'(< {MIN_FAILURE_AGE_HOURS}h). Waiting before attempting repair.'
+              )
 
           # ── 4. Find the most recent successful run with a live artifact ────────
           summary('\n## Step 4 — Find viable artifact from a successful run\n')
