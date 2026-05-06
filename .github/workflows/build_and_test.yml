@@ -30,7 +30,7 @@ jobs:
         run: dotnet test --no-restore --verbosity normal
 
       - name: Create artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: WowAHaha_${{ matrix.os }}_${{ matrix.dotnet-version }}
