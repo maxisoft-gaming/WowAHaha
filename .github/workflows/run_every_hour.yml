@@ -167,7 +167,7 @@ jobs:
                 value = env.get(env_var, '(not set)')
                 step_summary.write(f"| {env_var} | {value} |\n")
           
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           submodules: 'recursive'
       - name: Setup .NET Core SDK ${{ env.dotnet-version }}
